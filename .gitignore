@@ -1,0 +1,27 @@
+# Security Requirements (CRITICAL)
+.env
+credentials.json
+token.json
+token.pickle
+oauth_client.json
+
+# Python & Conda Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.conda/
+env/
+venv/
+
+# Project Specifics
+reports/
+**/reports/
+*.docx
+*.pdf
+
+# System Junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
