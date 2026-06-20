@@ -1,14 +1,8 @@
 """
-pdf_handler.py
-==============
-وحدة استخراج نص خطة المكتب الشهرية من ملف PDF مُرفوع على Google Drive.
-
-المسار الكامل:
-    رابط Drive (col 4) → File ID → تحميل إلى الذاكرة (BytesIO)
-    → استخراج النص بـ pdfplumber → إعادة سلسلة نصية نظيفة
-
-المتطلبات:
-    google-api-python-client, pdfplumber, google-auth
+pdf_handler.py  —  V2.1 (Logging + Exceptions)
+================================================
+يُحمّل ملفات PDF من Google Drive ويستخرج النص منها.
+مصمم ليكون «لا يفشل أبداً» — يُرجع دائماً (text, status).
 """
 
 from __future__ import annotations
@@ -22,175 +16,106 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 import config as cfg
+from logger import get_logger
+
+_log = get_logger("pdf")
+
+_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
 
-# ─── Drive Scopes ────────────────────────────────────────────────────────────
-_DRIVE_SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
-]
-
-
-# ─── Drive Service ───────────────────────────────────────────────────────────
 def _get_drive_service():
-    """
-    ينشئ ويُعيد خدمة Google Drive API مُصادَق عليها.
-
-    Returns:
-        googleapiclient Resource جاهز للاستخدام.
-
-    Raises:
-        FileNotFoundError: إذا لم يُعثر على credentials.json.
-    """
-    try:
-        creds = Credentials.from_service_account_file(
-            cfg.SERVICE_ACCOUNT_FILE,
-            scopes=_DRIVE_SCOPES,
-        )
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"❌ ملف الصلاحيات غير موجود: '{cfg.SERVICE_ACCOUNT_FILE}'"
-        )
+    """يُنشئ خدمة Drive API v3 مُصادَق عليها."""
+    creds = Credentials.from_service_account_file(
+        cfg.SERVICE_ACCOUNT_FILE, scopes=_DRIVE_SCOPES
+    )
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-# ─── File ID Extractor ───────────────────────────────────────────────────────
 def extract_file_id(drive_url: str) -> str | None:
     """
-    يستخرج File ID من رابط Google Drive أو Google Docs/Forms.
+    يستخرج file_id من رابط Google Drive.
 
-    الأنماط المدعومة:
-        - https://drive.google.com/file/d/FILE_ID/view
-        - https://drive.google.com/open?id=FILE_ID
-        - https://docs.google.com/...d/FILE_ID/...
+    يدعم:
+      - /d/{ID}/
+      - ?id={ID}
 
-    Args:
-        drive_url: الرابط الكامل كما ورد في العمود الرابع.
-
-    Returns:
-        File ID كسلسلة نصية، أو None إذا فشل الاستخراج.
+    يتطلب طول ID ≥ 25 حرف.
     """
-    if not drive_url or not isinstance(drive_url, str):
+    if not drive_url:
         return None
-
-    # النمط 1: /file/d/ID/ أو /d/ID/
-    match = re.search(r"/d/([a-zA-Z0-9_-]{25,})", drive_url)
-    if match:
-        return match.group(1)
-
-    # النمط 2: ?id=ID أو &id=ID
-    match = re.search(r"[?&]id=([a-zA-Z0-9_-]{25,})", drive_url)
-    if match:
-        return match.group(1)
-
+    patterns = [
+        r"/d/([a-zA-Z0-9_-]{25,})",
+        r"[?&]id=([a-zA-Z0-9_-]{25,})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, drive_url)
+        if m:
+            return m.group(1)
     return None
 
 
-# ─── PDF Downloader ──────────────────────────────────────────────────────────
 def _download_pdf_to_memory(service, file_id: str) -> bytes:
-    """
-    يُنزَّل PDF من Drive إلى الذاكرة مباشرةً (بدون حفظ على القرص).
-
-    Args:
-        service: خدمة Drive API.
-        file_id: معرّف الملف.
-
-    Returns:
-        محتوى الملف كـ bytes.
-
-    Raises:
-        RuntimeError: عند فشل التنزيل.
-    """
+    """يُحمّل PDF مباشرةً إلى الذاكرة (بدون حفظ محلي)."""
     request = service.files().get_media(fileId=file_id)
     buffer = io.BytesIO()
     downloader = MediaIoBaseDownload(buffer, request)
-
     done = False
     while not done:
         _, done = downloader.next_chunk()
-
-    buffer.seek(0)
-    return buffer.read()
+    return buffer.getvalue()
 
 
-# ─── Text Extractor ──────────────────────────────────────────────────────────
 def _extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """
-    يستخرج النص من ملف PDF ممثَّل كـ bytes.
-
-    Args:
-        pdf_bytes: محتوى الـ PDF كـ bytes.
-
-    Returns:
-        النص المستخرج كسلسلة نظيفة.
-    """
+    """يستخرج النص من جميع صفحات PDF عبر pdfplumber."""
     text_parts: list[str] = []
-
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
-                text_parts.append(page_text.strip())
-
-    full_text = "\n\n".join(text_parts)
-
-    # تنظيف: إزالة الأسطر الفارغة المتكررة
-    full_text = re.sub(r"\n{3,}", "\n\n", full_text)
-    return full_text.strip()
+                text_parts.append(page_text)
+    raw = "\n".join(text_parts)
+    # تنظيف الأسطر الفارغة الزائدة
+    return re.sub(r"\n{3,}", "\n\n", raw).strip()
 
 
-# ─── Public Interface ─────────────────────────────────────────────────────────
 def get_plan_text(drive_url: str) -> tuple[str, str]:
     """
-    الواجهة الرئيسية: يأخذ رابط Drive ويُعيد النص المستخرج من PDF.
+    الواجهة العامة: Drive URL → (نص_مُستخرج, رسالة_حالة).
+
+    لا يرفع استثناءات أبداً — خط الأنابيب يستمر بدون مقارنة الخطة.
 
     Args:
-        drive_url: رابط Google Drive كما ورد في col 4 (index 4).
+        drive_url: رابط ملف PDF على Google Drive.
 
     Returns:
-        Tuple[plan_text, status_message]:
-            plan_text: النص المستخرج (فارغ عند الفشل).
-            status_message: رسالة تصف نتيجة العملية (للتسجيل).
-
-    لا يُطلق استثناءً أبدًا — يُعيد نصًا فارغًا ورسالة خطأ واضحة عند أي مشكلة.
+        (extracted_text, status_message) — النص فارغ عند أي فشل.
     """
-    # ── فحص الرابط ──────────────────────────────────────────────────────────
-    if not drive_url or not drive_url.strip().startswith("http"):
-        return "", "⚠️  لا يوجد رابط خطة شهرية في هذا الصف."
+    if not drive_url or not drive_url.strip():
+        _log.debug("لا يوجد رابط خطة شهرية")
+        return "", "⚠️  لا يوجد رابط خطة شهرية."
 
     file_id = extract_file_id(drive_url)
     if not file_id:
-        return "", f"⚠️  تعذّر استخراج File ID من الرابط: {drive_url}"
+        _log.warning("رابط Drive غير صالح: %s", drive_url[:60])
+        return "", f"⚠️  رابط Drive غير صالح: {drive_url[:60]}"
 
-    # ── تنزيل الـ PDF ────────────────────────────────────────────────────────
     try:
+        _log.debug("تحميل PDF: file_id=%s", file_id)
         service = _get_drive_service()
         pdf_bytes = _download_pdf_to_memory(service, file_id)
-    except FileNotFoundError as e:
-        return "", str(e)
-    except Exception as e:
-        return "", f"❌ فشل تنزيل PDF (ID: {file_id}): {e}"
 
-    # ── استخراج النص ─────────────────────────────────────────────────────────
-    try:
+        if not pdf_bytes:
+            _log.warning("ملف PDF فارغ: %s", file_id)
+            return "", "⚠️  ملف PDF فارغ."
+
         text = _extract_text_from_pdf(pdf_bytes)
-    except Exception as e:
-        return "", f"❌ فشل قراءة نص PDF (ID: {file_id}): {e}"
+        if not text.strip():
+            _log.warning("لم يُستخرج نص من PDF: %s", file_id)
+            return "", "⚠️  PDF لا يحتوي على نص قابل للاستخراج."
 
-    if not text:
-        return "", f"⚠️  الـ PDF فارغ أو نصه غير قابل للاستخراج (ID: {file_id})."
+        _log.info("✅ تم استخراج %d حرف من PDF", len(text))
+        return text, f"✅ تم استخراج نص الخطة ({len(text)} حرف)"
 
-    char_count = len(text)
-    return text, f"✅ تم استخراج {char_count:,} حرف من PDF (ID: {file_id})"
-
-
-# ─── Quick Test ───────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    test_urls = [
-        "https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms/view",
-        "https://drive.google.com/open?id=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
-        "",
-        "invalid-url",
-    ]
-    for url in test_urls:
-        fid = extract_file_id(url)
-        print(f"URL: {url[:60]}...\n  → File ID: {fid}\n")
+    except Exception as exc:
+        _log.error("فشل معالجة PDF (%s): %s", file_id, exc)
+        return "", f"⚠️  فشل تحميل/قراءة PDF: {exc}"

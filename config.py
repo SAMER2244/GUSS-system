@@ -3,6 +3,11 @@ config.py
 =========
 الإعدادات المركزية لنظام توليد التقارير الآلي.
 جميع الثوابت والمسارات تُعرَّف هنا لتسهيل الصيانة والتوسع.
+
+الإعدادات تُحمَّل من ثلاثة مصادر (بالأولوية):
+  1. متغيرات البيئة (.env) — للمفاتيح السرية
+  2. settings.yaml — للإعدادات القابلة للتعديل
+  3. القيم الافتراضية المُضمَّنة — كشبكة أمان
 """
 
 import os
@@ -13,11 +18,29 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).parent
 load_dotenv(BASE_DIR / ".env")
 
+# ─── تحميل settings.yaml (اختياري — القيم الافتراضية كشبكة أمان) ──────────
+_settings: dict = {}
+try:
+    import yaml
+    _yaml_path = BASE_DIR / "settings.yaml"
+    if _yaml_path.exists():
+        with open(_yaml_path, "r", encoding="utf-8") as _f:
+            _settings = yaml.safe_load(_f) or {}
+except ImportError:
+    pass  # PyYAML غير مثبت — نستخدم القيم الافتراضية
+
+
+def _cfg(section: str, key: str, default):
+    """يقرأ قيمة من settings.yaml بمسار section.key مع قيمة افتراضية."""
+    return _settings.get(section, {}).get(key, default)
+
+
+# هيكل الأعمدة (Schema Configuration)
+SCHEMA_CFG: dict = _settings.get("schema", {})
+
 # ─── إعدادات Google Sheets ──────────────────────────────────────────────────
 SERVICE_ACCOUNT_FILE: str = str(BASE_DIR / "credentials.json")
-SPREADSHEET_NAME: str = "نظام المتابعة الدوري - الاتحاد العام لطلبة سوريا"
-# اختياري: استخدام الرابط المباشر بدلاً من الاسم
-# SPREADSHEET_URL: str = "https://docs.google.com/spreadsheets/d/YOUR_ID"
+SPREADSHEET_NAME: str = os.getenv("SPREADSHEET_NAME", _cfg("sheets", "spreadsheet_name", "نظام المتابعة الدوري - الاتحاد العام لطلبة سوريا"))
 
 SCOPES: list[str] = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -25,27 +48,24 @@ SCOPES: list[str] = [
 ]
 
 # ─── إعدادات Gemini AI ──────────────────────────────────────────────────────
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL: str = "gemini-2.5-flash"
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", _cfg("ai", "api_key", ""))
+GEMINI_MODEL_DEFAULT:  str = os.getenv("GEMINI_MODEL_DEFAULT", _cfg("ai", "default_model",  "gemini-3.5-flash"))
+GEMINI_MODEL_FALLBACK: str = os.getenv("GEMINI_MODEL_FALLBACK", _cfg("ai", "fallback_model", "gemini-3.1-flash-lite"))
+GEMINI_TEMPERATURE:  float = float(os.getenv("GEMINI_TEMPERATURE", _cfg("ai", "temperature", 0.3)))
+GEMINI_FALLBACK_WAIT:  int = int(os.getenv("GEMINI_FALLBACK_WAIT", _cfg("ai", "fallback_wait_seconds", 30)))
 
-# ─── إعدادات Groq AI ────────────────────────────────────────────────────────
-# يدعم مفتاحًا واحدًا أو قائمة مفاتيح مفصولة بفواصل في GROQ_API_KEYS
-# للتوافق الخلفي: إذا كان GROQ_API_KEY محدداً فقط، يُعامَل كقائمة من عنصر واحد
-_raw_keys: str = os.getenv("GROQ_API_KEYS", "") or os.getenv("GROQ_API_KEY", "")
-GROQ_API_KEYS: list[str] = [k.strip() for k in _raw_keys.split(",") if k.strip()]
-GROQ_API_KEY:  str = GROQ_API_KEYS[0] if GROQ_API_KEYS else ""   # backward-compat alias
-GROQ_MODEL:    str = "llama-3.1-8b-instant"   # high-limit model — replaces 70b for throughput
-GROQ_CURRENT_KEY_INDEX: int = 0              # مبدئي — يُحدَّث في ai_engine عند التدوير
+# max_output_tokens
+_ai_tokens: dict = _settings.get("ai", {}).get("max_tokens", {})
+GEMINI_MAX_TOKENS_TASKS:   int = _ai_tokens.get("tasks",   8192)
+GEMINI_MAX_TOKENS_DEFAULT: int = _ai_tokens.get("default", 4096)
 
-# ─── Parallel Orchestrator — نماذج كل قسم ──────────────────────────────────
-GROQ_MODEL_SUMMARY:    str = "llama-3.3-70b-versatile"  # سلسلة: قدرة توليف عالية
-GROQ_MODEL_TASKS:      str = "llama-3.1-8b-instant"     # سرعة عالية — للبيانات الهيكلية JSON
-GROQ_MODEL_CHALLENGES: str = "llama-3.1-8b-instant"     # Groq fallback للتحديات
-GROQ_MODEL_FALLBACK:   str = "llama-3.1-8b-instant"     # Fallback عالمي عند إخفاق Gemini/Groq
-GEMINI_MODEL_GEMMA4:   str = "gemma-4-31b-it"   # Gemma 4 عبر Gemini API — Thread 4 + Fallback
+# ─── إعدادات خط الأنابيب ────────────────────────────────────────────────────
+PIPELINE_COOLDOWN:    int = _cfg("pipeline", "cooldown_seconds", 10)
+PLAN_TEXT_MAX_CHARS:  int = _cfg("pipeline", "plan_text_max_chars", 6000)
 
-# ─── اختيار المزوّد: GROQ | GEMINI ──────────────────────────────────────────
-LLM_PROVIDER:  str = os.getenv("LLM_PROVIDER", "GROQ").upper()
+# ─── إعدادات Sheets Retry ───────────────────────────────────────────────────
+SHEETS_RETRY_MAX:        int   = _cfg("sheets", "retry_max", 3)
+SHEETS_RETRY_BASE_DELAY: float = _cfg("sheets", "retry_base_delay", 5.0)
 
 # ─── بنية الأعمدة (117 عمود) ────────────────────────────────────────────────
 # Indices are 0-based
@@ -82,13 +102,32 @@ REPORTS_DIR: Path = BASE_DIR / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
 # ─── إعدادات Google Drive Upload ───────────────────────────────────────
-# ID المجلد الجذر على Drive: ارشيف_الاتحاد_العام_لطلبة_سوريا
-ROOT_FOLDER_ID: str = "1UUuwLBOjFy4NkrTPI8ZG5WStTMjHsf42"
-# اسم مجلد النظام داخل سنة كل عام
-DRIVE_SYSTEM_FOLDER: str = "نظام_المتابعة_الدورية"
+ROOT_FOLDER_ID:     str = os.getenv("ROOT_FOLDER_ID", _cfg("drive", "root_folder_id", "1UUuwLBOjFy4NkrTPI8ZG5WStTMjHsf42"))
+DRIVE_SYSTEM_FOLDER: str = os.getenv("DRIVE_SYSTEM_FOLDER", _cfg("drive", "system_folder_name", "نظام_المتابعة_الدورية"))
+
+# ─── إعدادات التقرير ────────────────────────────────────────────────────
+REPORT_FONT:               str = _cfg("report", "font_family",         "Cairo")
+REPORT_INSTITUTIONAL_COLOR: str = _cfg("report", "institutional_color", "#1F4A37")
+REPORT_GOLD_COLOR:          str = _cfg("report", "gold_color",         "#DDB557")
+
+# ─── ثوابت الألوان (RGBColor) لاستخدامها في التقارير ────────────────────
+def _hex_to_rgb(hex_color: str):
+    """Converts '#RRGGBB' to RGBColor object."""
+    from docx.shared import RGBColor
+    h = hex_color.lstrip("#")
+    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+COLOR_PRIMARY:     object = _hex_to_rgb(REPORT_INSTITUTIONAL_COLOR)  # أخضر المؤسسة
+COLOR_ACCENT:      object = _hex_to_rgb(REPORT_GOLD_COLOR)           # ذهبي المؤسسة
+COLOR_TEXT:         object = _hex_to_rgb("#000000")                    # أسود
+COLOR_SECONDARY:   object = _hex_to_rgb("#444444")                    # رمادي داكن
+COLOR_PRIMARY_HEX: str    = REPORT_INSTITUTIONAL_COLOR.lstrip("#")    # "1F4A37" للـ XML
 
 # ─── OAuth2 User Credentials (للرفع فقط — يتجاوز حصة Service Account) ──
-# حمّل هذا الملف من Google Cloud Console → OAuth 2.0 Client IDs → Desktop App
 OAUTH_CLIENT_FILE: str = str(BASE_DIR / "oauth_client.json")
-# يُنشَأ تلقائيًا بعد أول تفويض ناجح
 OAUTH_TOKEN_FILE:  str = str(BASE_DIR / "token.json")
+
+# ─── إعدادات تسجيل الدخول والتوكن ──────────────────────────────────────────
+GUSS_ADMIN_USERNAME: str = os.getenv("GUSS_ADMIN_USERNAME", _cfg("auth", "admin_username", "admin"))
+GUSS_ADMIN_PASSWORD: str = os.getenv("GUSS_ADMIN_PASSWORD", _cfg("auth", "admin_password", "guss2026"))
+JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", _cfg("auth", "jwt_secret_key", "guss_secret_key_2026_xyz"))

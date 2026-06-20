@@ -1,8 +1,8 @@
 """
-report_generator.py  —  V2.0 Smart Auditing
-=============================================
+report_generator.py  —  V3.2 Smart Auditing (Logging + Exceptions)
+=================================================================
 ينشئ ملف Word (.docx) احترافيًا باللغة العربية واتجاه RTL.
-V2.0: يتضمن قسم التدقيق المقارن (الخطة المعتمدة vs الواقع التنفيذي).
+يتضمن قسم التدقيق المقارن (الخطة المعتمدة vs الواقع التنفيذي).
 """
 
 from __future__ import annotations
@@ -18,8 +18,15 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
+import subprocess
+import platform
+import shutil
 import config as cfg
 from data_parser import OfficeData, get_task_statistics
+from logger import get_logger
+from exceptions import ReportGenerationError
+
+_log = get_logger("report")
 
 
 # ─── RTL / Bidi Helpers ──────────────────────────────────────────────────────
@@ -71,8 +78,8 @@ def _make_rtl_paragraph(doc: Document, text: str, style: str = "Normal",
     if color:
         run.font.color.rgb = color
     # خط عربي
-    run.font.name = "Cairo"
-    run._r.rPr.rFonts.set(qn("w:cs"), "Cairo")
+    run.font.name = cfg.REPORT_FONT
+    run._r.rPr.rFonts.set(qn("w:cs"), cfg.REPORT_FONT)
     _set_rtl_run(run)
     return p
 
@@ -101,7 +108,7 @@ def _add_section_heading(doc: Document, title: str, number: int) -> None:
     p = _make_rtl_paragraph(
         doc, f"\u200F{number}. {title}",
         bold=True, size_pt=14,
-        color=RGBColor(0x1F, 0x4A, 0x37),  # أخضر المؤسسة
+        color=cfg.COLOR_PRIMARY,
     )
     # خط تحت العنوان (border)
     pBdr = OxmlElement("w:pBdr")
@@ -109,7 +116,7 @@ def _add_section_heading(doc: Document, title: str, number: int) -> None:
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "6")
     bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "1F4A37")
+    bottom.set(qn("w:color"), cfg.COLOR_PRIMARY_HEX)
     pBdr.append(bottom)
     p._p.pPr.append(pBdr)
 
@@ -204,16 +211,15 @@ def _extract_task_insights(ai_text: str) -> dict:
                 # name lookups
                 by_name[raw_name.lower()] = item
                 by_norm[_normalize(raw_name)] = item
-            print(f"   📊 [DEBUG] JSON extracted: {len(items)} tasks | "
-                  f"ids={list(by_id.keys())} | names={list(by_name.keys())}")
+            _log.debug("📊 JSON extracted: %d tasks | ids=%s | names=%s", len(items), list(by_id.keys()), list(by_name.keys()))
             return {"by_id": by_id, "by_id_arabic": by_id_arabic,
                     "by_name": by_name, "by_norm": by_norm}
         except Exception as e:
-            print(f"   ⚠️  [DEBUG] JSON parse FAILED: {e}")
-            print(f"   📐 [DEBUG] Raw JSON candidate: {match.group(1)[:300]}")
+            _log.warning("⚠️  JSON parse FAILED: %s", e)
+            _log.debug("📐 Raw JSON candidate: %s", match.group(1)[:300])
     else:
-        print("   ⚠️  [DEBUG] No JSON block found — attempting JSON repair...")
-        print(f"   📐 [DEBUG] Response tail (last 400 chars): {ai_text[-400:]}")
+        _log.warning("⚠️  No JSON block found — attempting JSON repair...")
+        _log.debug("📐 Response tail (last 400 chars): %s", ai_text[-400:])
         # محاولة إصلاح JSON المقطوع: ابحث عن آخر كائن مكتمل ثم أغلق المصفوفة
         last_brace = ai_text.rfind("}")
         if last_brace != -1:
@@ -226,7 +232,7 @@ def _extract_task_insights(ai_text: str) -> dict:
             try:
                 items = json.loads(candidate)
                 if isinstance(items, list) and items:
-                    print(f"   🔧 [DEBUG] JSON repaired: {len(items)} tasks recovered")
+                    _log.info("🔧 JSON repaired: %d tasks recovered", len(items))
                     by_id, by_id_arabic, by_name, by_norm = {}, {}, {}, {}
                     for item in items:
                         if not isinstance(item, dict): continue
@@ -240,8 +246,8 @@ def _extract_task_insights(ai_text: str) -> dict:
                     return {"by_id": by_id, "by_id_arabic": by_id_arabic,
                             "by_name": by_name, "by_norm": by_norm}
             except Exception as repair_err:
-                print(f"   ❌ [DEBUG] Repair failed: {repair_err}")
-        print("   ❌ [DEBUG] JSON unrecoverable.")
+                _log.error("❌ Repair failed: %s", repair_err)
+        _log.error("❌ JSON unrecoverable.")
     return {"by_id": {}, "by_id_arabic": {}, "by_name": {}, "by_norm": {}}
 
 def _add_tasks_section(doc: Document, office_data: OfficeData, ai_analysis: str) -> None:
@@ -266,7 +272,7 @@ def _add_tasks_section(doc: Document, office_data: OfficeData, ai_analysis: str)
         _make_rtl_paragraph(
             doc, f"\u200F{idx}. {t_name}",
             bold=True, size_pt=12,
-            color=RGBColor(0x1F, 0x4A, 0x37)
+            color=cfg.COLOR_PRIMARY
         )
 
         # ── الحالة والمسؤول ───────────────────────────────────────────────
@@ -277,7 +283,7 @@ def _add_tasks_section(doc: Document, office_data: OfficeData, ai_analysis: str)
             _make_rtl_paragraph(
                 doc, " | ".join(meta_info),
                 size_pt=10,
-                color=RGBColor(0x44, 0x44, 0x44)
+                color=cfg.COLOR_SECONDARY
             )
 
         # ── البحث عن رؤية AI — 4 طبقات متدرجة ────────────────────────
@@ -300,17 +306,17 @@ def _add_tasks_section(doc: Document, office_data: OfficeData, ai_analysis: str)
 
         if ai_data:
             ai_insight = ai_data.get("ai_insight", "").strip()
-            print(f"   ✅ [DEBUG] Matched task {idx} '‏{t_name[:30]}' → insight {'found' if ai_insight else '(field empty!)'}")
+            _log.debug("✅ Matched task %d '‏%s' → insight %s", idx, t_name[:30], 'found' if ai_insight else '(field empty!)')
         else:
             ai_insight = ""
-            print(f"   ❌ [DEBUG] MISS   task {idx} '‏{t_name[:30]}' — no match in any index")
+            _log.debug("❌ MISS task %d '‏%s' — no match in any index", idx, t_name[:30])
 
         # ── عرض الرؤية ────────────────────────────────────────────────────
         if ai_insight:
             p = _make_rtl_paragraph(
-                doc, f"💡 {ai_insight}",
+                doc, f"{ai_insight}",
                 size_pt=10, align="justify",
-                color=RGBColor(0x00, 0x00, 0x00)
+                color=cfg.COLOR_TEXT
             )
             pPr = p._p.get_or_add_pPr()
             ind = OxmlElement("w:ind")
@@ -347,7 +353,7 @@ def _add_challenges_section(doc: Document, office_data: OfficeData) -> None:
         f"مهام لديها إشكاليات: {stats['has_issues']}"
     )
     _make_rtl_paragraph(doc, stats_text, size_pt=10,
-                        color=RGBColor(0x00, 0x00, 0x00))
+                        color=cfg.COLOR_TEXT)
 
     doc.add_paragraph()
     if challenges:
@@ -368,7 +374,7 @@ def _add_office_message_section(doc: Document, office_data: OfficeData) -> None:
         doc,
         "يعرض المكتب التالي للنظر والبتت:",
         size_pt=10,
-        color=RGBColor(0x44, 0x44, 0x44),
+        color=cfg.COLOR_SECONDARY,
     )
     doc.add_paragraph()
     _make_rtl_paragraph(doc, notes, size_pt=11, align="justify")
@@ -402,10 +408,10 @@ def _add_audit_section(
     # ── شارة حالة PDF ──────────────────────────────────────────────────────
     if has_plan:
         badge_text  = "✅ الخطة الشهرية متوفرة — تم التدقيق المقارن"
-        badge_color = RGBColor(0x1F, 0x4A, 0x37)   # أخضر المؤسسة
+        badge_color = cfg.COLOR_PRIMARY
     else:
         badge_text  = f"⚠️  الخطة الشهرية غير متوفرة — {pdf_status}"
-        badge_color = RGBColor(0xDD, 0xB5, 0x57)   # ذهبي المؤسسة
+        badge_color = cfg.COLOR_ACCENT
 
     _make_rtl_paragraph(doc, badge_text, bold=True, size_pt=11,
                         color=badge_color)
@@ -472,26 +478,26 @@ def _add_cover(
     _make_rtl_paragraph(
         doc, "الاتحاد العام لطلبة سوريا",
         bold=True, size_pt=22,
-        color=RGBColor(0x1F, 0x4A, 0x37),   # أخضر المؤسسة
+        color=cfg.COLOR_PRIMARY,
         align="center",
     )
     _make_rtl_paragraph(
         doc, "منظومة المتابعة الدورية",
         bold=True, size_pt=18,
-        color=RGBColor(0xDD, 0xB5, 0x57),   # ذهبي المؤسسة
+        color=cfg.COLOR_ACCENT,
         align="center",
     )
     doc.add_paragraph()
     _make_rtl_paragraph(
         doc, f"تقرير الأداء الشهري — {office_data.get('office_name', '')}",
         bold=True, size_pt=16,
-        color=RGBColor(0x00, 0x00, 0x00),   # أسود
+        color=cfg.COLOR_TEXT,
         align="center",
     )
     _make_rtl_paragraph(
         doc, report_date,
         size_pt=13,
-        color=RGBColor(0x00, 0x00, 0x00),   # أسود
+        color=cfg.COLOR_TEXT,
         align="center",
     )
     doc.add_paragraph()
@@ -500,7 +506,7 @@ def _add_cover(
         f"مُقدَّم من: {office_data.get('submitter', '')} "
         f"| {office_data.get('submitter_phone', '')}",
         size_pt=11,
-        color=RGBColor(0x00, 0x00, 0x00),   # أسود
+        color=cfg.COLOR_TEXT,
         align="center",
     )
 
@@ -517,8 +523,8 @@ def _add_executive_summary_direct(doc: Document, summary_text: str) -> None:
     if not summary_text or not summary_text.strip():
         _make_rtl_paragraph(
             doc,
-            "⚠️ تعذّر توليد الملخص التنفيذي بسبب استنفاد حصة واجهات برمجة النماذج اللغوية. "
-            "يُرجى إعادة تشغيل النظام أو إضافة مفتاح Groq إضافي.",
+            "⚠️ تعذّر توليد الملخص التنفيذي بسبب استنفاد حصة واجهات برمجة النماذج اللغوية (Gemini API) "
+            "أو انقطاع الاتصال بالإنترنت. يُرجى التحقق من اتصال الشبكة وصلاحية مفتاح API الموفر.",
             size_pt=11,
         )
         return
@@ -554,7 +560,7 @@ def _add_challenges_section_direct(
     ]
     for line in stat_lines:
         _make_rtl_paragraph(doc, line, size_pt=10,
-                            color=RGBColor(0x1F, 0x4A, 0x37))
+                            color=cfg.COLOR_PRIMARY)
 
     doc.add_paragraph()
 
@@ -587,11 +593,11 @@ def _add_audit_section_direct(
     # بادئة حالة الخطة
     if plan_text and plan_text.strip():
         _make_rtl_paragraph(doc, f"📎 {pdf_status}", size_pt=10,
-                            color=RGBColor(0x1F, 0x4A, 0x37))
+                            color=cfg.COLOR_PRIMARY)
     else:
         _make_rtl_paragraph(
             doc, "⚠️  لم تُرفع الخطة الشهرية — التحليل بناءً على بيانات النموذج وحدها.",
-            size_pt=10, color=RGBColor(0xCC, 0x66, 0x00)
+            size_pt=10, color=cfg.COLOR_ACCENT
         )
 
     doc.add_paragraph()
@@ -603,6 +609,68 @@ def _add_audit_section_direct(
                 _make_rtl_paragraph(doc, para, size_pt=11, align="justify")
     else:
         _make_rtl_paragraph(doc, "لم يتوفر تحليل المطابقة.", size_pt=11)
+
+
+def _convert_to_pdf(docx_path: Path) -> Path | None:
+    """
+    يحوّل ملف .docx إلى .pdf بطريقة متوافقة مع أنظمة Windows و Linux.
+    يتحقق من وجود محرك التحويل (LibreOffice) قبل التنفيذ لضمان استقرار النظام.
+    """
+    system = platform.system()
+    binary = None
+
+    # ── 1. تحديد مسار محرك التحويل ───────────────────────────────────────────
+    if system == "Linux":
+        binary = shutil.which("libreoffice")
+    elif system == "Windows":
+        # البحث في PATH أولاً
+        binary = shutil.which("soffice")
+        if not binary:
+            # مسارات التثبيت الشائعة لـ LibreOffice على Windows
+            common_paths = [
+                r"C:\Program Files\LibreOffice\program\soffice.exe",
+                r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
+            ]
+            for p in common_paths:
+                if Path(p).exists():
+                    binary = p
+                    break
+
+    # ── 2. التحقق من توفر المحرك ─────────────────────────────────────────────
+    if not binary:
+        _log.warning("⚠️ PDF Conversion Engine (LibreOffice/soffice) not found. "
+                     "Skipping PDF generation, Word document is preserved.")
+        return None
+
+    try:
+        pdf_path = docx_path.with_suffix(".pdf")
+        _log.info("🔄 Converting to PDF (%s): %s...", system, pdf_path.name)
+        
+        # ── 3. تنفيذ أمر التحويل ────────────────────────────────────────────────
+        cmd = [
+            binary,
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", str(docx_path.parent),
+            str(docx_path)
+        ]
+        
+        subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=40,  # مهلة زمنية كافية للتحويل
+            check=True
+        )
+        
+        if pdf_path.exists():
+            _log.info("✅ PDF Generated: %s", pdf_path.name)
+            return pdf_path
+            
+    except Exception as e:
+        _log.warning("⚠️ PDF Conversion failed (non-critical): %s", e)
+    
+    return None
 
 
 # ─── Main Builder ─────────────────────────────────────────────────────────────
@@ -691,27 +759,39 @@ def build_report(
     )
 
     doc.save(output_path)
-    print(f"   📄 Report saved: {output_path.name}")
+    _log.info("📄 Report saved: %s", output_path.name)
+
+    # ── V2.2: تصدير نسخة PDF مرآتية ──────────────────────────────────────────
+    _convert_to_pdf(output_path)
+
     return output_path
 
 
 # ─── Quick Test ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    from data_parser import parse_row
-
-    dummy_row = ["2025-01-01", "مكتب دمشق", "أحمد علي", "0900000001", "1",
-                 "http://plan.pdf"] + [""] * 112
-    dummy_row[6]  = "محمد سالم"
-    dummy_row[7]  = "0911111111"
-    dummy_row[8]  = "تنظيم ندوة"
-    dummy_row[9]  = "ندوة حول الحقوق الطلابية"
-    dummy_row[10] = "ثقافي"
-    dummy_row[11] = "حضوري"
-    dummy_row[12] = "مكتمل"
-    dummy_row[116] = "نقص في الميزانية"
-    dummy_row[117] = "نأمل في زيادة الدعم"
-
-    data = parse_row(dummy_row)
+    data = {
+        "office_name": "مكتب دمشق",
+        "submitter": "أحمد علي",
+        "submitter_phone": "0900000001",
+        "target_month_name": "كانون الثاني",
+        "target_month_num": 1,
+        "monthly_plan_link": "http://plan.pdf",
+        "general_challenges": "نقص في الميزانية",
+        "additional_notes": "نأمل في زيادة الدعم",
+        "tasks": [
+            {
+                "manager": "محمد سالم",
+                "manager_phone": "0911111111",
+                "name": "تنظيم ندوة",
+                "description": "ندوة حول الحقوق الطلابية",
+                "type": "ثقافي",
+                "mechanism": "حضوري",
+                "status": "مكتمل",
+                "issues": "",
+                "file_link": ""
+            }
+        ]
+    }
     cfg.REPORTS_DIR.mkdir(exist_ok=True)
     path = build_report(
         data,
@@ -720,4 +800,4 @@ if __name__ == "__main__":
         plan_text="الخطة الشهرية: 1. ندوة 2. ورشة عمل 3. اجتماع",
         pdf_status="✅ تم استخراج 500 حرف من PDF",
     )
-    print(f"✅ Test report V2.0: {path}")
+    _log.info("✅ Test report V2.0: %s", path)

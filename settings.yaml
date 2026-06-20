@@ -1,0 +1,136 @@
+ai:
+  default_model: gemini-3.5-flash
+  fallback_model: gemini-3.1-flash-lite
+  fallback_wait_seconds: 30
+  max_tokens:
+    default: 4096
+    tasks: 8192
+  temperature: 0.3
+auth:
+  admin_password: sha256$94e00b8a20379e9e$b1b848d2c11cd029b14a404021f278553e5b95ca7b6182de1b796e4410c5ddac
+  admin_username: samer
+drive:
+  root_folder_id: 1UUuwLBOjFy4NkrTPI8ZG5WStTMjHsf42
+  system_folder_name: نظام_المتابعة_الدورية
+pipeline:
+  cooldown_seconds: 10
+  plan_text_max_chars: 6000
+report:
+  font_family: Cairo
+  gold_color: '#DDB557'
+  institutional_color: '#1F4A37'
+schema:
+  fields:
+    additional_notes:
+      aliases:
+      - ملاحظات إضافية
+      - ملاحظات
+      - Notes
+      - أي ملاحظات أخرى
+      required: false
+    general_challenges:
+      aliases:
+      - التحديات العامة
+      - تحديات
+      - Challenges
+      - أهم التحديات
+      required: false
+    monthly_plan_link:
+      aliases:
+      - رابط الخطة الشهرية
+      - PDF الخطة
+      - Plan Link
+      - رابط ملف الخطة
+      required: false
+    office_name:
+      aliases:
+      - اسم المكتب
+      - المكتب
+      - Office Name
+      required: true
+    submitter:
+      aliases:
+      - اسم مقدم التقرير
+      - المقدّم
+      - Submitter
+      - اسمك
+      required: true
+    submitter_phone:
+      aliases:
+      - رقم هاتف مقدم التقرير
+      - رقم الهاتف
+      - Phone
+      - رقم هاتف المقدم
+      required: false
+    timestamp:
+      aliases:
+      - الطابع الزمني
+      - Timestamp
+      - التاريخ
+      - وقت الإرسال
+      required: true
+  task_detection:
+    max_tasks: 30
+    skip_column_aliases:
+    - هل تريد إضافة مهمة أخرى
+    - إضافة مهمة
+  task_fields:
+  - aliases:
+    - مسؤول المهمة
+    - المسؤول
+    - Manager
+    - اسم المسؤول
+    key: manager
+  - aliases:
+    - رقم هاتف المسؤول
+    - هاتف المسؤول
+    - رقم المسؤول
+    key: manager_phone
+  - aliases:
+    - اسم المهمة
+    - المهمة
+    - Task Name
+    - عنوان المهمة
+    key: name
+    required: true
+  - aliases:
+    - وصف المهمة
+    - الوصف
+    - Description
+    - تفاصيل المهمة
+    key: description
+  - aliases:
+    - نوع المهمة
+    - النوع
+    - Type
+    - تصنيف المهمة
+    key: type
+  - aliases:
+    - آلية التنفيذ
+    - الآلية
+    - Mechanism
+    - طريقة التنفيذ
+    key: mechanism
+  - aliases:
+    - حالة المهمة
+    - الحالة
+    - Status
+    - موقف التنفيذ
+    key: status
+  - aliases:
+    - إشكاليات
+    - مشاكل
+    - Issues
+    - الصعوبات
+    - التحديات للمهمة
+    key: issues
+  - aliases:
+    - رابط الملف
+    - المرفقات
+    - File Link
+    - رابط إثبات المهمة
+    key: file_link
+sheets:
+  retry_base_delay: 5.0
+  retry_max: 3
+  spreadsheet_name: نظام المتابعة الدوري - الاتحاد العام لطلبة سوريا

@@ -1,5 +1,5 @@
-# Antigravity V3.0 — System Skill Map & Development Contract
-# Last Updated: 2026-04-15 | Version: 3.0
+# Antigravity V3.2 — System Skill Map & Development Contract
+# Last Updated: 2026-06-15 | Version: 3.2
 
 ---
 
@@ -8,50 +8,46 @@
 | Layer | Technology |
 |-------|-----------|
 | Language | Python 3.11 |
-| AI Primary | Groq API (llama-3.3-70b-versatile, llama-3.1-8b-instant) |
-| AI Secondary | Gemini API (gemini-2.5-flash, gemma-4-31b-it) |
+| AI Engine | Gemini API (gemini-3.5-flash, gemini-3.1-flash-lite) |
 | Data Source | Google Sheets API (gspread) |
 | File Storage | Google Drive API (OAuth2) |
+| PDF Extraction | pdfplumber |
 | Output Format | Word Documents (.docx) via python-docx |
 | Config | .env + config.py |
 
 ---
 
-## 2. Core Capabilities (V3.0)
+## 2. Core Capabilities (V3.2)
 
 ### 2.1 Parallel Orchestrator (4-Thread Engine)
 - The system fires **4 independent threads simultaneously** per office row using `ThreadPoolExecutor(max_workers=4)`.
-- Each thread owns exactly ONE section and ONE model:
+- Each thread owns exactly ONE section, all using the same Gemini model with section-specific system instructions:
 
-| Thread | Section | Primary Model | Provider |
-|--------|---------|--------------|---------|
-| 1 | `summary` | llama-3.3-70b-versatile | Groq |
-| 2 | `tasks` | llama-3.1-8b-instant | Groq |
-| 3 | `audit` | gemini-2.5-flash | Gemini |
-| 4 | `challenges` | gemma-4-31b-it | Gemini |
+| Thread | Section | Model | Max Tokens | Provider |
+|--------|---------|-------|------------|----------|
+| 1 | `summary` | gemini-3.5-flash | 4,096 | Gemini |
+| 2 | `tasks` | gemini-3.5-flash | 8,192 | Gemini |
+| 3 | `audit` | gemini-3.5-flash | 4,096 | Gemini |
+| 4 | `challenges` | gemini-3.5-flash | 4,096 | Gemini |
 
 - **DO NOT** merge threads or run sections sequentially unless explicitly requested.
-- **DO NOT** change model assignments without updating `_SECTION_CFG` and `config.py` together.
+- **DO NOT** change model assignments without updating `config.py` first.
 
-### 2.2 Multi-Tier Failover (The Life Jacket)
-The failover chain for Groq threads (summary + tasks):
+### 2.2 Three-Tier Failover (Gemini-Only)
+The failover chain for ALL threads:
 ```
-Primary Groq Model (70B/8B)
-  → 429: Key Rotation (next key, attempt -= 1, no retry waste)
-  → All keys exhausted: Exponential Backoff (15s → 30s → 60s)
-  → Groq Fallback: llama-3.1-8b-instant (same key pool)
-  → Groq Fallback also empty: 🆘 Gemini Universal Escalation
-  → Gemini unavailable: ❌ Empty section + clear console warning
-```
-The failover chain for Gemini threads (audit + challenges):
-```
-Gemini API (gemini-2.5-flash / gemma-4-31b-it)
-  → 400/401/403: BREAK immediately → Groq fallback (no retry on permanent errors)
-  → 429/503: Exponential Backoff (15s → 30s → 60s)
-  → 3 failures: Groq fallback with section-specific instruction
+Default Model (gemini-3.5-flash)
+  → Success: return result
+  → 429/503/ResourceExhausted: Switch to Fallback Model
+  → Other errors (400/401/403): BREAK immediately → raise exception
+
+Fallback Model (gemini-3.1-flash-lite)
+  → Success: return result
+  → 429/503 (repeated): Wait 30 seconds → retry infinitely
+  → Other errors: BREAK immediately → raise exception
 ```
 - **INVARIANT:** `on_progress(section, bool(val.strip()))` — progress marker is `True` only when content is non-empty.
-- **DO NOT** remove the `attempt -= 1` free-retry on key rotation.
+- The fallback logic is implemented in `call_gemini_with_fallback()` in `ai_engine.py`.
 
 ### 2.3 5-Tier Task Mapping Sync (The Dictionary)
 `report_generator._extract_task_insights()` matches AI output to Sheet tasks via:
@@ -69,23 +65,21 @@ Gemini API (gemini-2.5-flash / gemma-4-31b-it)
 
 ### 2.4 Cooldown & Rate Management
 - Inter-row wait: `time.sleep(10)` after each office row — printed as countdown.
-- Backoff caps: 15s base, doubles per attempt, max 60s per cycle.
-- Key rotation: `self._key_index` protected by `threading.Lock()` — thread-safe.
+- Fallback retry wait: 30 seconds between infinite retry attempts on fallback model.
 - Google Sheets: 3 retries (5s → 10s → 20s) on 500/503 before raising.
 
 ### 2.5 Input Sanitization
-- `_sanitize(text)` strips control chars, UTF-16 surrogates, and private-use Unicode before sending to Gemini.
-- Applied to both `system_instruction` and `user_prompt` in `_gemini_call`.
+- `sanitize(text)` strips control chars, UTF-16 surrogates, and private-use Unicode before sending to Gemini.
+- Applied to both `system_instruction` and `user_prompt` in `call_gemini_with_fallback()`.
 
 ### 2.6 Data Integrity Rules
 - `plan_text[:6000]` — hard cap on PDF content sent to prompts. Never remove.
 - `general_challenges` and `additional_notes` are injected **explicitly** at the end of every section prompt. Never omit.
 - Gemini `max_output_tokens`: tasks → 8192, all others → 4096.
-- Groq `max_tokens`: summary → 8192, others → 4096.
 
 ---
 
-## 3. Logic Flow (V3.0)
+## 3. Logic Flow (V3.2)
 
 ```
 main.py
@@ -95,13 +89,13 @@ main.py
   ├─► pdf_handler.py     → Download + extract plan PDF text
   │
   ├─► ai_engine.py       → ParallelOrchestrator.analyze()
-  │     ├─ Thread 1: _run_section("summary")   → Groq 70B
-  │     ├─ Thread 2: _run_section("tasks")     → Groq 8B
-  │     ├─ Thread 3: _run_section("audit")     → Gemini Flash
-  │     └─ Thread 4: _run_section("challenges")→ Gemma 4
-  │          └─► Failover chain if any thread fails
+  │     ├─ Thread 1: _run_section("summary")    → Gemini 3.5 Flash
+  │     ├─ Thread 2: _run_section("tasks")      → Gemini 3.5 Flash
+  │     ├─ Thread 3: _run_section("audit")      → Gemini 3.5 Flash
+  │     └─ Thread 4: _run_section("challenges") → Gemini 3.5 Flash
+  │          └─► 3-Tier Fallback if any thread fails
   │
-  ├─► report_generator.py → Build .docx (RTL Arabic)
+  ├─► report_generator.py → Build .docx (RTL Arabic) + PDF conversion
   │     └─► _extract_task_insights() → 5-tier mapping
   │
   └─► drive_uploader.py  → Upload to Drive (auto-create year/month folders)
@@ -119,6 +113,7 @@ main.py
 | `report_generator.py` | Word doc layout, task mapping | LLM model selection |
 | `sheet_reader.py` | Google Sheets connection + retry | AI or file logic |
 | `drive_uploader.py` | Google Drive upload/folder creation | Report content |
+| `pdf_handler.py` | PDF download + text extraction | AI or report logic |
 | `main.py` | Pipeline loop, progress display | Internal section logic |
 
 ---
@@ -141,7 +136,7 @@ Changes to `report_generator.py` must preserve:
 Changes to `ai_engine.py` must preserve:
 - `analyze(office_data, plan_text, on_progress) -> dict[str, str]`
 - The 4-key output: `{"summary", "tasks", "audit", "challenges"}`
-- The `_gemini_call(section, prompt)` section-awareness
+- The `call_gemini_with_fallback()` section-awareness
 
 ### Rule 3 — Pre-Edit Checklist
 Before ANY code modification, verify:
@@ -154,13 +149,13 @@ Before ANY code modification, verify:
 After any edit, confirm these invariants hold:
 1. `orchestrator.analyze()` still returns `{"summary": str, "tasks": str, "audit": str, "challenges": str}`
 2. `_extract_task_insights()` still returns the 4-key dict
-3. `GROQ_MODEL_FALLBACK` is never empty string
+3. `GEMINI_MODEL_FALLBACK` is never empty string
 4. `max_output_tokens` for tasks section is always ≥ 4096
 
 ### Rule 5 — Configuration Sync
 If a model name or key is changed:
 - Update `config.py` FIRST
-- Then update any reference in `ai_engine.py` `_SECTION_CFG`
+- Then update any reference in `ai_engine.py`
 - Never hardcode model names inside functions — always reference `cfg.*`
 
 ---
@@ -182,11 +177,11 @@ If a model name or key is changed:
 
 ## 7. Expansion Slots
 
-- `[SLOT: SECOND_GROQ_KEY]` Add `gsk_key2` to `GROQ_API_KEYS` in `.env` — zero code change needed.
 - `[SLOT: ALTERNATIVE_PLAN_FORMATS]` Handler for image/Word-based plans.
 - `[SLOT: REPORT_DISTRIBUTION]` Automated email or Slack delivery.
 - `[SLOT: BATCH_RETRY]` Persistent queue for failed Drive uploads.
 - `[SLOT: WEBHOOK_NOTIFY]` POST to endpoint when a report is generated.
+- `[SLOT: ADDITIONAL_GEMINI_MODEL]` Add more Gemini model tiers for granular fallback.
 
 ---
 

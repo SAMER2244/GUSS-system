@@ -1,6 +1,6 @@
 """
-drive_uploader.py  —  V2.2 (Monthly Folders + Attachments)
-============================================================
+drive_uploader.py  —  V2.3 (Logging + Exceptions)
+====================================================
 يرفع التقرير والمرفقات إلى Google Drive ضمن هيكلية:
 
     ROOT → [السنة] → نظام_المتابعة_الدورية → [المكتب] → [الشهر]
@@ -29,6 +29,10 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 import config as cfg
+from logger import get_logger
+from exceptions import DriveUploadError
+
+_log = get_logger("drive")
 
 
 # ─── MIME Types ──────────────────────────────────────────────────────────────
@@ -36,6 +40,7 @@ _FOLDER_MIME = "application/vnd.google-apps.folder"
 _DOCX_MIME   = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+_PDF_MIME    = "application/pdf"
 _UPLOAD_SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 # أسماء الشهور بالعربية
@@ -97,14 +102,14 @@ def _build_oauth_service():
             _save_token(creds, token_path)
         except Exception as refresh_err:
             # invalid_grant أو أي خطأ تجديد → نحذف التوكن ونُعيد التفويض
-            print(f"   🔄 Token expired/invalid ({refresh_err.__class__.__name__}) — re-authorizing...")
+            _log.info("   🔄 Token expired/invalid (%s) — re-authorizing...", refresh_err.__class__.__name__)
             token_path.unlink(missing_ok=True)
             creds = None
 
     # فتح المتصفح إذا لم يوجد توكن صالح
     if not creds or not creds.valid:
         if not client_path.exists():
-            raise FileNotFoundError(
+            raise DriveUploadError(
                 f"❌ ملف OAuth غير موجود: {client_path}\n"
                 "   حمّله من: Google Cloud Console → OAuth 2.0 Client IDs → Desktop App"
             )
@@ -119,7 +124,7 @@ def _build_oauth_service():
 def _save_token(creds: Credentials, token_path: Path) -> None:
     with open(token_path, "w", encoding="utf-8") as f:
         f.write(creds.to_json())
-    print(f"   💾 token.json saved")
+    _log.debug("💾 token.json saved")
 
 
 # ─── Folder Helpers ───────────────────────────────────────────────────────────
@@ -161,10 +166,10 @@ def _get_or_create_folder(service, name: str, parent_id: str) -> str:
     """يُعيد folder_id — يبحث أولاً، وينشئ فقط إذا لم يجد."""
     existing = _find_folder(service, name, parent_id)
     if existing:
-        print(f"   📁 Existing folder: '{name}'")
+        _log.debug("📁 Existing folder: '%s'", name)
         return existing
     new_id = _create_folder(service, name, parent_id)
-    print(f"   📁 Created folder: '{name}'  → {new_id}")
+    _log.info("📁 Created folder: '%s'  → %s", name, new_id)
     return new_id
 
 
@@ -195,7 +200,7 @@ def _find_file(service, name: str, parent_id: str) -> str | None:
 def _delete_file(service, file_id: str) -> None:
     """يحذف ملفًا."""
     service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
-    print(f"   🗑️  Old file deleted: {file_id}")
+    _log.debug("🗑️  Old file deleted: %s", file_id)
 
 
 # ─── Attachments ──────────────────────────────────────────────────────────────
@@ -214,7 +219,7 @@ def _copy_attachments(service, tasks: list[dict], month_id: str) -> None:
 
         file_id = _extract_drive_id(link)
         if not file_id:
-            print(f"   ⚠️  Could not extract ID from link: {link[:60]}")
+            _log.warning("⚠️  Could not extract ID from link: %s", link[:60])
             continue
 
         try:
@@ -234,15 +239,15 @@ def _copy_attachments(service, tasks: list[dict], month_id: str) -> None:
                 fields="id",
             ).execute()
 
-            print(f"   📎 Attachment copied: {file_name}")
+            _log.info("📎 Attachment copied: %s", file_name)
             copied += 1
 
         except Exception as e:
             task_name = task.get("name", "")
-            print(f"   ⚠️  Failed to copy attachment «{task_name}»: {e}")
+            _log.warning("⚠️  Failed to copy attachment «%s»: %s", task_name, e)
 
     if copied:
-        print(f"   📎 Total attachments copied: {copied}")
+        _log.info("📎 Total attachments copied: %d", copied)
 
 
 # ─── Main Upload Function ─────────────────────────────────────────────────────
@@ -267,9 +272,9 @@ def upload_report(
     """
     local_path = Path(local_path)
     if not local_path.exists():
-        raise FileNotFoundError(f"الملف غير موجود: {local_path}")
+        raise DriveUploadError(f"الملف غير موجود: {local_path}")
 
-    print("   ☁️  Building Drive service (OAuth2)...")
+    _log.info("☁️  Building Drive service (OAuth2)...")
     service = _build_oauth_service()
 
     current_year  = str(datetime.now().year)
@@ -277,7 +282,7 @@ def upload_report(
         current_month = f"{office_data['target_month_name']}_{current_year}"
     else:
         current_month = _current_month_folder()
-    print(f"   📂 Root  -> {cfg.ROOT_FOLDER_ID}")
+    _log.debug("📂 Root  ->  %s", cfg.ROOT_FOLDER_ID)
 
     # ── بناء الهيكلية الهرمية ────────────────────────────────────────────
     year_id   = _get_or_create_folder(service, current_year,            cfg.ROOT_FOLDER_ID)
@@ -307,17 +312,36 @@ def upload_report(
 
     file_id   = uploaded.get("id", "")
     view_link = uploaded.get("webViewLink", "")
-    print(f"   ✅ Report uploaded: {file_name}")
-    print(f"   🔗 {view_link}")
+    _log.info("✅ Report uploaded: %s", file_name)
+    _log.info("🔗 %s", view_link)
+
+    # ── V2.3: رفع نسخة PDF مرآتية إن وُجدت ──────────────────────────────────
+    pdf_path = local_path.with_suffix(".pdf")
+    if pdf_path.exists():
+        pdf_name = pdf_path.name
+        # حذف النسخة القديمة إن وُجدت
+        old_pdf_id = _find_file(service, pdf_name, month_id)
+        if old_pdf_id:
+            _delete_file(service, old_pdf_id)
+
+        pdf_meta = {"name": pdf_name, "parents": [month_id]}
+        pdf_media = MediaFileUpload(str(pdf_path), mimetype=_PDF_MIME, resumable=False)
+        service.files().create(
+            body=pdf_meta,
+            media_body=pdf_media,
+            fields="id",
+            supportsAllDrives=True
+        ).execute()
+        _log.info("✅ PDF mirror uploaded: %s", pdf_name)
 
     # ── نسخ مرفقات المهام ────────────────────────────────────────────────
     if office_data:
         tasks = office_data.get("tasks", [])
         tasks_with_links = [t for t in tasks if t.get("file_link", "").strip()]
         if tasks_with_links:
-            print(f"   📎 Copying {len(tasks_with_links)} attachments...")
+            _log.info("📎 Copying %d attachments...", len(tasks_with_links))
             _copy_attachments(service, tasks_with_links, month_id)
         else:
-            print("   📎 No task attachments found.")
+            _log.debug("📎 No task attachments found.")
 
     return file_id

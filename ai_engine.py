@@ -1,14 +1,11 @@
 """
-ai_engine.py  —  V2.1 Strategic Auditor (Multi-Provider)
-=========================================================
-يُرسل بيانات المكتب + نص الخطة الشهرية إلى المزوّد المُختار (Groq أو Gemini)
-ويستقبل تقريرًا Auditيًا مقارنًا احترافيًا باللغة العربية.
+ai_engine.py  —  V3.2 Strategic Auditor (Gemini-Only with Fallback & Retry)
+=========================================================================
+يُرسل بيانات المكتب + نص الخطة الشهرية إلى Gemini.
 
-المزوّد يُحدَّد عبر LLM_PROVIDER في ملف .env:
-  LLM_PROVIDER=GROQ    → Llama 3 70B عبر Groq  (الافتراضي)
-  LLM_PROVIDER=GEMINI  → Gemini 2.5 Flash (احتياطي)
-
-لا تغييرات على منطق Google Sheets / Drive.
+النموذج الافتراضي: Gemini 3.5 Flash (gemini-3.5-flash)
+النموذج الاحتياطي (عند خطأ 429): Gemini 3.1 Flash Lite (gemini-3.1-flash-lite)
+في حال تكرار خطأ 429: الانتظار والإعادة.
 """
 
 from __future__ import annotations
@@ -19,6 +16,10 @@ from abc import ABC, abstractmethod
 
 import config as cfg
 from data_parser import OfficeData, get_task_statistics
+from logger import get_logger
+from exceptions import AIAnalysisError
+
+_log = get_logger("ai_engine")
 
 
 # ─── System Instruction: Strategic Auditor Persona ───────────────────────────
@@ -44,7 +45,7 @@ _SYSTEM_INSTRUCTION = """
   {
     "task_id": "رقم المهمة",
     "original_name": "اسم المهمة كما وردَ في النموذج",
-    "ai_insight": "جملة واحدة بأسلوب الاستشارة الإدارية الرفيعة تدمج الهدف الاستراتيجي والمنهجية والأثر التشغيلي وأي قيود جوهرية في سياق نثري متصل"
+    "ai_insight": "نص قصير بحدود السبعة اسطر يشمل جميع التفاصيل التي تم ذكرها بخصوص المهمة مثل الهدف الاستراتيجي والمنهجية والأثر التشغيلي وأي قيود او تحديات جوهرية في سياق نثري متصل مع التركيز على الية التنفيذ"
   }
 ]
 ```
@@ -63,7 +64,7 @@ _SYSTEM_INSTRUCTION = """
 
 قواعد إلزامية مشتركة لجميع الأقسام:
 أولًا: اللغة العربية الفصحى ذات الأسلوب الإداري الرسمي في جميع الأقسام النصية دون استثناء.
-ثانيًا: يُحظر استخدام أي تنسيق Markdown (نجوم، شرطات، رموز) خارج كتلة JSON في القسم الثاني.
+ثانيًا: يُحظر استخدام أي تنسيق Markdown (نجوم، ايموجي، شرائط، رموز) خارج كتلة JSON في القسم الثاني.
 ثالثًا: العناوين تُكتب كنص عادي، مثال: «القسم الأول — الملخص التنفيذي الشامل».
 رابعًا: لا يجوز إغفال أي معلومة واردة في البيانات المُدخَلة.
 خامسًا: يُحظر تمامًا إدراج أي قيم رقمية تقييمية كالدرجات أو النقاط في أي قسم نصي.
@@ -86,12 +87,13 @@ def _build_audit_prompt(office_data: OfficeData, plan_text: str) -> str:
     stats = get_task_statistics(office_data)
 
     # ── الخطة الشهرية ────────────────────────────────────────────────────────
+    max_chars = cfg.PLAN_TEXT_MAX_CHARS
     if plan_text and plan_text.strip():
         plan_section = (
             "=== نص الخطة الشهرية المعتمدة (مُستخرج من PDF) ===\n"
-            f"{plan_text[:6000]}\n"
+            f"{plan_text[:max_chars]}\n"
             + ("[... اقتُصر على الجزء الأول بسبب طول النص ...]\n"
-               if len(plan_text) > 6000 else "")
+               if len(plan_text) > max_chars else "")
         )
     else:
         plan_section = (
@@ -114,7 +116,7 @@ def _build_audit_prompt(office_data: OfficeData, plan_text: str) -> str:
         f"{additional_notes if additional_notes else '[لا توجد ملاحظات إضافية]'}\n"
     )
 
-    # ── بيانات المهام (نسخة نظيفة بدون الحقلين الختاميين — مُدرجان أعلاه صراحةً) ─
+    # ── بيانات المهام (نسخة نظيفة بدون الحقلين الختاميين) ────────────────────────
     tasks_payload = {
         "office_name":    office_data.get("office_name", ""),
         "submitter":      office_data.get("submitter", ""),
@@ -129,7 +131,6 @@ def _build_audit_prompt(office_data: OfficeData, plan_text: str) -> str:
         f"{plan_section}\n"
         "=== بيانات المهام التفصيلية (من النموذج الرقمي) ===\n"
         f"{json.dumps(tasks_payload, ensure_ascii=False, indent=2)}\n\n"
-        # ── الحقول ذات الأولوية العالية تأتي آخرًا لضمان أعلى attention weight ──
         f"{challenges_section}\n"
         f"{notes_section}\n"
         "=== تعليمات الإخراج ===\n"
@@ -142,212 +143,7 @@ def _build_audit_prompt(office_data: OfficeData, plan_text: str) -> str:
     ).strip()
 
 
-# ─── Abstract Base ────────────────────────────────────────────────────────────
-class _BaseAnalyzer(ABC):
-    MAX_RETRIES: int = 3
-    RETRY_DELAY: float = 15.0   # رُفع من 10 ث — قاعدة Exponential Backoff
-
-    @abstractmethod
-    def analyze(self, office_data: OfficeData, plan_text: str = "") -> str: ...
-
-
-# ─── Groq Analyzer — Key-Rotation Edition ───────────────────────────────────
-class GroqAnalyzer(_BaseAnalyzer):
-    """
-    يُغلّف Groq بدور المدقّق الاستراتيجي.
-    عند خطأ 429: يُدير المفتاح فورًا ويُعيد المحاولة بدون إضياع attempt.
-    """
-
-    def __init__(self) -> None:
-        if not cfg.GROQ_API_KEYS:
-            raise ValueError(
-                "❌ لا يوجد أي مفتاح Groq API.\n"
-                "أضف GROQ_API_KEYS=key1,key2 إلى ملف .env\n"
-                "احصل على مفاتيحك من: https://console.groq.com/keys"
-            )
-        try:
-            from groq import Groq  # type: ignore
-            self._Groq = Groq
-        except ImportError:
-            raise ImportError("❌ مكتبة groq غير مُثبَّتة. شغّل: pip install groq")
-
-        self._keys       = cfg.GROQ_API_KEYS          # قائمة المفاتيح
-        self._key_index  = 0                           # المفتاح النشط حاليًا
-        self._client     = self._Groq(api_key=self._keys[0])
-        print(f"✅ Groq engine initialized: {cfg.GROQ_MODEL} — {len(self._keys)} key(s) (Strategic Auditor v2.2)")
-
-    def _rotate_key(self) -> bool:
-        """
-        يُدير إلى المفتاح التالي ويُعيد بناء العميل.
-        يُعيد False إذا استُنفدت جميع المفاتيح.
-        """
-        next_index = self._key_index + 1
-        if next_index >= len(self._keys):
-            print("❌ All keys exhausted — cannot rotate further.")
-            return False
-        self._key_index = next_index
-        self._client    = self._Groq(api_key=self._keys[next_index])
-        print(f"🔄 Key exhausted, switching to next... [Key {next_index + 1}/{len(self._keys)}]")
-        return True
-
-    def analyze(self, office_data: OfficeData, plan_text: str = "") -> str:
-        """
-        يُرسل بيانات المكتب + نص الخطة إلى Groq ويُعيد التقرير الAuditي.
-        عند 429: يُدير المفتاح فورًا ويُعيد نفس المحاولة بدون إضياع attempt.
-        """
-        office_name = office_data.get("office_name", "غير محدد")
-        plan_status = "مع خطة PDF" if (plan_text and plan_text.strip()) else "بدون خطة PDF"
-        prompt = _build_audit_prompt(office_data, plan_text)
-
-        # عدد المحاولات = MAX_RETRIES × عدد المفاتيح (للتحكم الكامل)
-        total_attempts = self.MAX_RETRIES * len(self._keys)
-        attempt = 0
-
-        while attempt < total_attempts:
-            attempt += 1
-            key_label = f"مفتاح {self._key_index + 1}/{len(self._keys)}"
-            try:
-                print(f"   🤖 [Groq/{key_label}] Audit «{office_name}» [{plan_status}] "
-                      f"(محاولة {attempt}/{total_attempts})...")
-
-                response = self._client.chat.completions.create(
-                    model=cfg.GROQ_MODEL,
-                    messages=[
-                        {"role": "system", "content": _SYSTEM_INSTRUCTION},
-                        {"role": "user",   "content": prompt},
-                    ],
-                    temperature=0.3,
-                    max_tokens=8192,
-                )
-                response_text = response.choices[0].message.content.strip()
-                print(f"\n--- RAW AI RESPONSE ({office_name}) ---\n"
-                      f"{response_text}\n--- END RAW ---\n")
-                return response_text
-
-            except Exception as exc:
-                err_msg = str(exc)
-                is_rate_limit = "rate_limit" in err_msg.lower() or "429" in err_msg
-
-                if is_rate_limit:
-                    # تدوير فوري — لا يُحتسب من attempt
-                    rotated = self._rotate_key()
-                    if rotated:
-                        attempt -= 1   # أعد المحاولة بنفس الرقم بالمفتاح الجديد
-                        continue
-                    # استُنفدت كل المفاتيح — انتظر وخذ إمكانية إعادة تدوير من الأول
-                    wait = int(self.RETRY_DELAY * (2 ** min(attempt - 1, 3)))
-                    print(f"   ⏳ [All keys exhausted] Backoff", end="", flush=True)
-                    for _ in range(wait):
-                        time.sleep(1)
-                        print(".", end="", flush=True)
-                    print(f" {wait}s ✓ — Restarting cycle from first key")
-                    self._key_index = 0
-                    self._client    = self._Groq(api_key=self._keys[0])
-                elif "503" in err_msg or "unavailable" in err_msg.lower():
-                    print("   ⏳ [503] Service unavailable", end="", flush=True)
-                    for _ in range(5):
-                        time.sleep(1)
-                        print(".", end="", flush=True)
-                    print(" ✓")
-                else:
-                    print(f"   ⏳ Error: {err_msg[:60]}... retrying...")
-                    time.sleep(3)
-
-        return "Analysis currently unavailable"
-
-
-# ─── Gemini Analyzer (احتياطي) ───────────────────────────────────────────────
-class GeminiAnalyzer(_BaseAnalyzer):
-    """
-    يُغلّف نموذج Gemini 2.5 Flash بدور المدقّق الاستراتيجي.
-    يُستخدم احتياطيًا عند ضبط LLM_PROVIDER=GEMINI في .env.
-    """
-
-    def __init__(self) -> None:
-        if not cfg.GEMINI_API_KEY:
-            raise ValueError(
-                "❌ مفتاح Gemini API غير محدد.\n"
-                "أضف GEMINI_API_KEY إلى ملف .env"
-            )
-        from google import genai                          # type: ignore
-        from google.genai import types as genai_types    # type: ignore
-
-        self._genai_types = genai_types
-        self._client = genai.Client(api_key=cfg.GEMINI_API_KEY)
-        self._config = genai_types.GenerateContentConfig(
-            system_instruction=_SYSTEM_INSTRUCTION,
-        )
-        print(f"✅ Gemini engine initialized: {cfg.GEMINI_MODEL} (Strategic Auditor v2.1)")
-
-    def analyze(self, office_data: OfficeData, plan_text: str = "") -> str:
-        """
-        يُرسل بيانات المكتب + نص الخطة إلى Gemini ويُعيد التقرير الAuditي.
-        """
-        office_name = office_data.get("office_name", "غير محدد")
-        plan_status = "مع خطة PDF" if (plan_text and plan_text.strip()) else "بدون خطة PDF"
-        prompt = _build_audit_prompt(office_data, plan_text)
-
-        for attempt in range(1, self.MAX_RETRIES + 1):
-            try:
-                print(f"   🤖 [Gemini] Audit «{office_name}» [{plan_status}] "
-                      f"(محاولة {attempt}/{self.MAX_RETRIES})...")
-                response = self._client.models.generate_content(
-                    model=cfg.GEMINI_MODEL,
-                    contents=prompt,
-                    config=self._config,
-                )
-                return response.text.strip()
-
-            except Exception as exc:
-                err_msg = str(exc)
-                if attempt < self.MAX_RETRIES:
-                    if "503" in err_msg or "Unavailable" in err_msg:
-                        print("   ⏳ [503] Service unavailable", end="", flush=True)
-                        for _ in range(5):
-                            time.sleep(1)
-                            print(".", end="", flush=True)
-                        print(" ✓")
-                    elif "429" in err_msg or "ResourceExhausted" in err_msg:
-                        # Exponential Backoff: 15s → 30s → 60s
-                        wait = int(self.RETRY_DELAY * (2 ** (attempt - 1)))
-                        print(f"   ⏳ [429] Exponential Backoff", end="", flush=True)
-                        for _ in range(wait):
-                            time.sleep(1)
-                            print(".", end="", flush=True)
-                        print(f" {wait}s ✓")
-                    else:
-                        print(f"   ⏳ Error: {err_msg[:40]}... retrying...")
-                        time.sleep(2)
-                    continue
-
-        return "Analysis currently unavailable"
-
-
-# ─── Factory: يُعيد المحلّل الصحيح بناءً على LLM_PROVIDER ───────────────────
-def get_analyzer() -> _BaseAnalyzer:
-    """
-    المدخل الوحيد لبقية الكود.
-
-    الاستخدام:
-        from ai_engine import get_analyzer
-        analyzer = get_analyzer()
-        report  = analyzer.analyze(office_data, plan_text)
-    """
-    provider = cfg.LLM_PROVIDER
-    if provider == "GROQ":
-        return GroqAnalyzer()
-    elif provider == "GEMINI":
-        return GeminiAnalyzer()
-    else:
-        raise ValueError(
-            f"❌ مزوّد LLM غير معروف: '{provider}'\n"
-            "القيم المقبولة في .env: GROQ | GEMINI"
-        )
-
-
 # ─── Per-Section System Instructions ─────────────────────────────────────────
-# NOTE: Instructions are in English to maximize LLM reasoning.
-#       Each section enforces Arabic-language output for the report.
 _SECTION_INSTRUCTIONS: dict[str, str] = {
 
     "summary": """
@@ -376,7 +172,7 @@ Output exactly one JSON block. No text before or after it:
   {
     "task_id": "task number (1, 2, 3...)",
     "original_name": "task name exactly as it appears in the data",
-    "ai_insight": "One cohesive sentence in McKinsey consulting style organically merging: strategic objective + methodology + operational impact + any constraints forming essential context"
+    "ai_insight": "A concise seven-line narrative integrating all mission-critical details, including the strategic objective, methodology, and operational impact, while seamlessly incorporating any fundamental constraints or challenges within a continuous prose context"
   }
 ]
 ```
@@ -441,13 +237,11 @@ def _build_section_prompt(
     plan_text: str,
 ) -> str:
     """بيانات مُركَّزة لكل خيط — نفس البيانات، تعليمات الإخراج مختلفة."""
-    import json
-    from data_parser import get_task_statistics
-
     stats = get_task_statistics(office_data)
 
+    max_chars = cfg.PLAN_TEXT_MAX_CHARS
     plan_block = (
-        f"=== نص الخطة الشهرية المعتمدة ===\n{plan_text[:6000]}\n"
+        f"=== نص الخطة الشهرية المعتمدة ===\n{plan_text[:max_chars]}\n"
         if plan_text and plan_text.strip()
         else "=== الخطة الشهرية ===\n[غير متوفرة]\n"
     )
@@ -474,227 +268,176 @@ def _build_section_prompt(
     ).strip()
 
 
-# ─── Parallel Orchestrator ────────────────────────────────────────────────────
-class ParallelOrchestrator:
+# ─── Abstract Base ────────────────────────────────────────────────────────────
+class _BaseAnalyzer(ABC):
+    @abstractmethod
+    def analyze(self, office_data: OfficeData, plan_text: str = "") -> str: ...
+
+
+# ─── Gemini call helper with 429 fallback and retry logic ─────────────────────
+def call_gemini_with_fallback(
+    client,
+    system_instruction: str,
+    user_prompt: str,
+    max_output_tokens: int = 4096,
+    office_name: str = "غير محدد",
+    section_name: str = "all"
+) -> str:
     """
-    يُشغّل 4 خيوط متوازية لكل مكتب، كل خيط يُنتج قسمًا واحدًا:
-      summary    → llama-3.3-70b-versatile (Groq)
-      tasks      → llama-3.1-8b-instant    (Groq)
-      audit      → gemini-2.5-flash        (Gemini API)
-      challenges → gemma-4-27b-it          (Gemini API)
-
-    عند 429: تدوير فوري للمفاتيح → عند استنفادها: Gemma 4 Fallback عبر Gemini.
+    يستدعي نموذج Gemini.
+    النموذج الافتراضي: gemini-3.5-flash
+    عند حدوث خطأ 429: يتم الانتقال إلى gemini-3.1-flash-lite
+    عند حدوث خطأ 429 مجدداً على النموذج البديل: ينتظر 30 ثانية ويعيد المحاولة.
     """
+    from google.genai import types as genai_types  # type: ignore
 
-    _SECTION_CFG: dict[str, dict] = {
-        "summary":    {"provider": "groq",        "model_attr": "GROQ_MODEL_SUMMARY"},
-        "tasks":      {"provider": "groq",        "model_attr": "GROQ_MODEL_TASKS"},
-        "audit":      {"provider": "gemini",      "model_attr": "GEMINI_MODEL"},
-        "challenges": {"provider": "gemini-gemma4", "model_attr": "GEMINI_MODEL_GEMMA4"},
-    }
-
-    def __init__(self) -> None:
-        if not cfg.GROQ_API_KEYS:
-            raise ValueError("❌ لا يوجد أي مفتاح Groq API. أضف GROQ_API_KEYS إلى .env")
-
-        try:
-            from groq import Groq  # type: ignore
-            self._Groq = Groq
-        except ImportError:
-            raise ImportError("❌ pip install groq")
-
-        self._keys      = cfg.GROQ_API_KEYS
-        self._key_index = 0                          # مشترك — محمي بـ threading.Lock
-        self._lock      = __import__("threading").Lock()
-
-        # Gemini (للAudit المقارن مع PDF)
-        self._gemini_client = None
-        if cfg.GEMINI_API_KEY:
-            try:
-                from google import genai  # type: ignore
-                self._gemini_client = genai.Client(api_key=cfg.GEMINI_API_KEY)
-            except Exception:
-                pass   # Gemini غير متوفر — سيُستخدم Groq كـ fallback
-
-        n_keys = len(self._keys)
-        print(f"✅ [Orchestrator] Ready — "
-              f"4 خيوط | {n_keys} key(s) Groq | "
-              f"Gemini={'✅' if self._gemini_client else '⚠️ غير متوفر'}")
-
-    # ── داخلي: Groq call مع key-rotation ────────────────────────────────────
-    def _groq_call(self, model: str, system: str, user: str,
-                   max_tokens: int = 4096) -> str:
-        """
-        مُستدعى من الخيوط — يُدير المفتاح عند 429، يعود False عند الاستنفاد.
-        """
-        total = self.MAX_RETRIES * len(self._keys)
-        attempt = 0
-        while attempt < total:
-            attempt += 1
-            with self._lock:
-                key   = self._keys[self._key_index]
-                k_lbl = f"{self._key_index + 1}/{len(self._keys)}"
-            client = self._Groq(api_key=key)
-            try:
-                resp = client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user",   "content": user},
-                    ],
-                    temperature=0.3,
-                    max_tokens=max_tokens,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as exc:
-                err = str(exc)
-                if "rate_limit" in err.lower() or "429" in err:
-                    with self._lock:
-                        nxt = self._key_index + 1
-                        if nxt < len(self._keys):
-                            self._key_index = nxt
-                            print(f"\n   🔄 [429] Key exhausted → Key {nxt + 1}/{len(self._keys)}")
-                            attempt -= 1   # أعد بنفس الرقم بالمفتاح الجديد
-                            continue
-                        # كل المفاتيح مجهدة
-                    wait = min(15 * (2 ** min(attempt, 3)), 60)
-                    print(f"\n   ⏳ [All keys exhausted] Backoff {wait}s", end="", flush=True)
-                    for _ in range(wait):
-                        time.sleep(1)
-                        print(".", end="", flush=True)
-                    print(" ✓")
-                    with self._lock:
-                        self._key_index = 0   # أعد التدوير
-                else:
-                    time.sleep(3)
-        return ""
-
-    MAX_RETRIES: int = 3
-
-    @staticmethod
-    def _sanitize(text: str) -> str:
-        """يُزيل الأحرف غير الصالحة للإرسال إلى Gemini API."""
+    def sanitize(text: str) -> str:
         import re
         text = text.encode("utf-8", errors="ignore").decode("utf-8")
         text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
-        text = re.sub(r"[\ud800-\udfff]", "", text)    # surrogates
-        text = re.sub(r"[\ue000-\uf8ff]", "", text)    # private use area
+        text = re.sub(r"[\ud800-\udfff]", "", text)
+        text = re.sub(r"[\ue000-\uf8ff]", "", text)
         return text
 
-    # ── الخيوط 3+4: Gemini / Gemma4 ──────────────────────────────────────────
-    def _gemini_call(self, section: str, user_prompt: str) -> str:
-        """
-        يستدعي Gemini API (مع system_instruction منفصل) أو يسقط إلى Groq.
-        النماذج:
-          audit      → gemini-2.5-flash
-          challenges → gemma-4-27b-it
-        """
-        if not self._gemini_client:
-            return self._groq_call(
-                cfg.GROQ_MODEL_FALLBACK,
-                _SECTION_INSTRUCTIONS[section],
-                user_prompt,
-            )
+    sys_inst = sanitize(system_instruction)
+    prompt = sanitize(user_prompt)
 
-        model     = (cfg.GEMINI_MODEL_GEMMA4 if section == "challenges"
-                     else cfg.GEMINI_MODEL)
-        sys_inst  = self._sanitize(_SECTION_INSTRUCTIONS[section])
-        clean_pmt = self._sanitize(user_prompt)
-
-        for attempt in range(1, 4):
-            try:
-                from google.genai import types as t  # type: ignore
-                out_tokens = 8192 if section == "tasks" else 4096
-                resp = self._gemini_client.models.generate_content(
-                    model=model,
-                    contents=clean_pmt,
-                    config=t.GenerateContentConfig(
+    # المحاولة الأولى باستخدام النموذج الافتراضي (Gemini 3.5 Flash)
+    model = cfg.GEMINI_MODEL_DEFAULT
+    try:
+        _log.info("   🤖 [Gemini/%s] Calling for '%s' (Section: %s)...", model, office_name, section_name)
+        config = genai_types.GenerateContentConfig(
+            system_instruction=sys_inst,
+            temperature=cfg.GEMINI_TEMPERATURE,
+            max_output_tokens=max_output_tokens
+        )
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=config
+        )
+        return response.text.strip()
+    except Exception as exc:
+        err_msg = str(exc)
+        is_temp_error = any(
+            x in err_msg or x in err_msg.lower()
+            for x in ["429", "503", "resourceexhausted", "rate", "unavailable", "demand",
+                      "name resolution", "resolution", "dns", "connection", "timeout", "refused"]
+        )
+        if is_temp_error:
+            # خطأ مؤقت -> الانتقال للنموذج البديل (Gemini 3.1 Flash Lite)
+            _log.warning("   ⚠️  [Transient Error] Default model '%s' failed: %s. Switching to fallback '%s'...", model, err_msg[:100], cfg.GEMINI_MODEL_FALLBACK)
+            model = cfg.GEMINI_MODEL_FALLBACK
+            attempt = 0
+            max_fallback_attempts = 3
+            while attempt < max_fallback_attempts:
+                attempt += 1
+                try:
+                    _log.info("   🤖 [Gemini/%s] Calling fallback model (Attempt %d/%d)...", model, attempt, max_fallback_attempts)
+                    config = genai_types.GenerateContentConfig(
                         system_instruction=sys_inst,
-                        temperature=0.3,
-                        max_output_tokens=out_tokens,
-                    ),
-                )
-                return resp.text.strip()
-            except Exception as exc:
-                err = str(exc)
-                if "400" in err or "401" in err or "403" in err:
-                    print(f"\n   ❌ [Gemini-{model}/{attempt}] {err[:80]}")
-                    print(f"   ℹ️ Immediate failover to Groq ({cfg.GROQ_MODEL_FALLBACK})")
-                    break
-                wait = 5 if ("503" in err or "Unavailable" in err) else \
-                       int(15 * (2 ** (attempt - 1))) if ("429" in err or "ResourceExhausted" in err) \
-                       else 3
-                print(f"\n   ⏳ [Gemini/{attempt}] {err[:40]}... {wait}s", end="", flush=True)
-                for _ in range(wait):
-                    time.sleep(1)
-                    print(".", end="", flush=True)
-                print(" ✓")
-        print(f"\n   ⚠️  [{section}] Gemini failed → Groq fallback ({cfg.GROQ_MODEL_FALLBACK})")
-        return self._groq_call(
-            cfg.GROQ_MODEL_FALLBACK,
-            _SECTION_INSTRUCTIONS[section],
-            user_prompt,
+                        temperature=cfg.GEMINI_TEMPERATURE,
+                        max_output_tokens=max_output_tokens
+                    )
+                    response = client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=config
+                    )
+                    return response.text.strip()
+                except Exception as exc_fallback:
+                    err_fallback = str(exc_fallback)
+                    is_fallback_temp = any(
+                        x in err_fallback or x in err_fallback.lower()
+                        for x in ["429", "503", "resourceexhausted", "rate", "unavailable", "demand",
+                                  "name resolution", "resolution", "dns", "connection", "timeout", "refused"]
+                    )
+                    if is_fallback_temp and attempt < max_fallback_attempts:
+                        # خطأ مؤقت متكرر -> انتظر وأعد المحاولة
+                        _log.warning("   ⏳ [Transient Error] Fallback '%s' also failed: %s (Attempt %d/%d). Waiting %ds...", model, err_fallback[:100], attempt, max_fallback_attempts, cfg.GEMINI_FALLBACK_WAIT)
+                        time.sleep(cfg.GEMINI_FALLBACK_WAIT)
+                    else:
+                        _log.error("   ❌ [Gemini/%s] Fallback error after %d attempts: %s", model, attempt, err_fallback)
+                        raise AIAnalysisError(str(err_fallback), section=section_name, model=model) from exc_fallback
+        else:
+            _log.error("   ❌ [Gemini/%s] Default model error: %s", model, err_msg)
+            raise AIAnalysisError(str(exc), section=section_name, model=model) from exc
+
+
+# ─── Gemini Analyzer (للتوافق القديم واختبارات debug_test.py) ──────────────────
+class GeminiAnalyzer(_BaseAnalyzer):
+    """
+    محلل متوافق مع الواجهة القديمة ويستخدم منطق التبديل والانتظار الخاص بـ Gemini.
+    """
+
+    def __init__(self) -> None:
+        if not cfg.GEMINI_API_KEY:
+            raise AIAnalysisError(
+                "❌ مفتاح Gemini API غير محدد. أضف GEMINI_API_KEY إلى ملف .env"
+            )
+        from google import genai                          # type: ignore
+        self._client = genai.Client(api_key=cfg.GEMINI_API_KEY)
+        _log.info("✅ Gemini engine initialized: Default=%s, Fallback=%s", cfg.GEMINI_MODEL_DEFAULT, cfg.GEMINI_MODEL_FALLBACK)
+
+    def analyze(self, office_data: OfficeData, plan_text: str = "") -> str:
+        prompt = _build_audit_prompt(office_data, plan_text)
+        return call_gemini_with_fallback(
+            self._client,
+            _SYSTEM_INSTRUCTION,
+            prompt,
+            max_output_tokens=8192,
+            office_name=office_data.get("office_name", "غير محدد"),
+            section_name="all"
         )
 
-    # ── مُشغّل القسم (يعمل داخل ThreadPoolExecutor) ─────────────────────────
+
+# ─── Parallel Orchestrator ────────────────────────────────────────────────────
+class ParallelOrchestrator:
+    """
+    يُشغّل 4 خيوط متوازية لكل مكتب، كل خيط يُنتج قسمًا واحدًا باستخدام Gemini مع Fallback & Retry.
+    """
+
+    def __init__(self) -> None:
+        if not cfg.GEMINI_API_KEY:
+            raise AIAnalysisError("❌ مفتاح Gemini API غير محدد. أضف GEMINI_API_KEY إلى .env")
+
+        try:
+            from google import genai  # type: ignore
+            self._client = genai.Client(api_key=cfg.GEMINI_API_KEY)
+        except ImportError:
+            raise AIAnalysisError("❌ مكتبة google-genai غير مثبتة. شغّل: pip install google-genai")
+
+        _log.info("✅ [Orchestrator] Ready — 4 threads using Gemini (Default: %s / Fallback: %s)", cfg.GEMINI_MODEL_DEFAULT, cfg.GEMINI_MODEL_FALLBACK)
+
     def _run_section(
         self,
         section: str,
         office_data: OfficeData,
         plan_text: str,
     ) -> str:
-        """يُشغّل نموذج القسم المُخصَّص ويُعيد النص الخام."""
-        scfg     = self._SECTION_CFG[section]
-        model    = getattr(cfg, scfg["model_attr"])
-        prompt   = _build_section_prompt(section, office_data, plan_text)
+        prompt = _build_section_prompt(section, office_data, plan_text)
         sys_inst = _SECTION_INSTRUCTIONS[section]
+        out_tokens = cfg.GEMINI_MAX_TOKENS_TASKS if section == "tasks" else cfg.GEMINI_MAX_TOKENS_DEFAULT
+        
+        try:
+            return call_gemini_with_fallback(
+                self._client,
+                sys_inst,
+                prompt,
+                max_output_tokens=out_tokens,
+                office_name=office_data.get("office_name", "غير محدد"),
+                section_name=section
+            )
+        except Exception as e:
+            _log.error("   ❌ [%s] Failed all attempts: %s", section, e)
+            return ""
 
-        # Gemini / Gemma4 — كلاهما عبر _gemini_call الموحَّد
-        if scfg["provider"] in ("gemini", "gemini-gemma4"):
-            return self._gemini_call(section, prompt)
-
-        # Groq (summary + tasks) — مع Groq fallback عند الاستنفاد الكامل
-        max_tok = 8192 if section == "summary" else 4096
-        result  = self._groq_call(model, sys_inst, prompt, max_tokens=max_tok)
-        if not result:
-            print(f"\n   ⚠️  [{section}] Groq exhausted → Groq fallback ({cfg.GROQ_MODEL_FALLBACK})")
-            if section == "tasks":
-                # مهام: تعليمات JSON صريحة حتى لا يُنتج النص نثراً
-                json_enforcement = (
-                    "CRITICAL: RETURN ONLY RAW JSON ARRAY. "
-                    "NO conversational text. NO markdown prose outside the JSON block. "
-                    "Start your response with [ and end with ]. "
-                    "The VERY LAST character of your response MUST be ] — "
-                    "never stop generating before the JSON array is fully closed.\n\n"
-                    + sys_inst
-                )
-                result = self._groq_call(
-                    cfg.GROQ_MODEL_FALLBACK, json_enforcement, prompt, max_tokens=4096
-                )
-            else:
-                result = self._groq_call(
-                    cfg.GROQ_MODEL_FALLBACK, sys_inst, prompt, max_tokens=4096
-                )
-
-        # آخر خط دفاع: أي قسم فشل Groq فيه كلياً → Gemini بنفس تعليماته
-        if not result and self._gemini_client:
-            print(f"\n   🆘 [{section}] Groq completely exhausted → Gemini ({cfg.GEMINI_MODEL})")
-            result = self._gemini_call(section, prompt)
-        elif not result:
-            print(f"\n   ❌ [{section}] Groq failed and Gemini unavailable — section empty.")
-        return result
-
-    # ── الواجهة الرئيسية ──────────────────────────────────────────────────────
     def analyze(
         self,
         office_data: OfficeData,
         plan_text: str = "",
         on_progress=None,
     ) -> dict[str, str]:
-        """
-        يُشغّل 4 خيوط متوازية ويُعيد:
-          { 'summary': str, 'tasks': str, 'audit': str, 'challenges': str }
-        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         SECTIONS = ["summary", "tasks", "audit", "challenges"]
@@ -711,9 +454,9 @@ class ParallelOrchestrator:
                     val = future.result() or ""
                     results[section] = val
                     if on_progress:
-                        on_progress(section, bool(val.strip()))  # False if empty
+                        on_progress(section, bool(val.strip()))
                 except Exception as exc:
-                    print(f"\n   ❌ [{section}] Unexpected error: {exc}")
+                    _log.error("   ❌ [%s] Unexpected orchestrator thread error: %s", section, exc)
                     results[section] = ""
                     if on_progress:
                         on_progress(section, False)
@@ -722,30 +465,40 @@ class ParallelOrchestrator:
 
 
 # ─── Factories ────────────────────────────────────────────────────────────────
+def get_analyzer() -> _BaseAnalyzer:
+    return GeminiAnalyzer()
+
 def get_orchestrator() -> ParallelOrchestrator:
-    """يُعيد ParallelOrchestrator — المدخل المُوصَى به لـ main.py."""
     return ParallelOrchestrator()
 
 
 if __name__ == "__main__":
-    from data_parser import parse_row
-
-    dummy_row = ["2025-01-01", "مكتب حلب", "سارة أحمد", "0912345678",
-                 "http://plan.pdf"] + [""] * 112
-    dummy_row[5]  = "خالد محمود"
-    dummy_row[6]  = "0911111111"
-    dummy_row[7]  = "تنظيم يوم ثقافي"
-    dummy_row[8]  = "يوم ثقافي في الجامعة"
-    dummy_row[9]  = "ثقافي"
-    dummy_row[10] = "حضوري"
-    dummy_row[11] = "مكتمل"
-    dummy_row[115] = "ضعف التمويل"
-    dummy_row[116] = "نأمل دعمًا لوجستيًا"
-
-    data = parse_row(dummy_row)
+    data = {
+        "office_name": "مكتب حلب",
+        "submitter": "سارة أحمد",
+        "submitter_phone": "0912345678",
+        "target_month_name": "كانون الثاني",
+        "target_month_num": 1,
+        "monthly_plan_link": "http://plan.pdf",
+        "general_challenges": "ضعف التمويل",
+        "additional_notes": "نأمل دعمًا لوجستيًا",
+        "tasks": [
+            {
+                "manager": "خالد محمود",
+                "manager_phone": "0911111111",
+                "name": "تنظيم يوم ثقافي",
+                "description": "يوم ثقافي في الجامعة",
+                "type": "ثقافي",
+                "mechanism": "حضوري",
+                "status": "مكتمل",
+                "issues": "",
+                "file_link": ""
+            }
+        ]
+    }
     sample_plan = "الخطة الشهرية: 1. تنظيم يوم ثقافي 2. ورشة عمل تدريبية 3. اجتماع اللجنة"
 
-    analyzer = get_analyzer()   # يختار تلقائيًا بناءً على LLM_PROVIDER في .env
+    analyzer = get_analyzer()
     result = analyzer.analyze(data, sample_plan)
     print("\n" + "=" * 60)
     print(result)
