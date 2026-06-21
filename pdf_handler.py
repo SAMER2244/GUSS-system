@@ -94,7 +94,16 @@ def get_plan_text(drive_url: str) -> tuple[str, str]:
         _log.debug("لا يوجد رابط خطة شهرية")
         return "", "⚠️  لا يوجد رابط خطة شهرية."
 
+    # ── [DIAG] سطر تشخيصي مؤقت — يُحذف بعد التشخيص ──────────────────────
+    _log.warning("[DIAG] get_plan_text called | url_prefix=%s", drive_url[:80])
+    # ───────────────────────────────────────────────────────────────────────
+
     file_id = extract_file_id(drive_url)
+
+    # ── [DIAG] سطر تشخيصي مؤقت — يُحذف بعد التشخيص ──────────────────────
+    _log.warning("[DIAG] extract_file_id result: %s", file_id)
+    # ───────────────────────────────────────────────────────────────────────
+
     if not file_id:
         _log.warning("رابط Drive غير صالح: %s", drive_url[:60])
         return "", f"⚠️  رابط Drive غير صالح: {drive_url[:60]}"
@@ -109,12 +118,28 @@ def get_plan_text(drive_url: str) -> tuple[str, str]:
             return "", "⚠️  ملف PDF فارغ."
 
         text = _extract_text_from_pdf(pdf_bytes)
+
+        # ── [DIAG] سطر تشخيصي مؤقت — يُحذف بعد التشخيص ──────────────────────
+        _log.warning(
+            "[DIAG] PDF extraction | len=%d | first100=%r | status_will_be=%s",
+            len(text),
+            text[:100],
+            "empty" if not text.strip() else "ok",
+        )
+        # ───────────────────────────────────────────────────────────────────────
+
         if not text.strip():
             _log.warning("لم يُستخرج نص من PDF: %s", file_id)
             return "", "⚠️  PDF لا يحتوي على نص قابل للاستخراج."
 
         _log.info("✅ تم استخراج %d حرف من PDF", len(text))
-        return text, f"✅ تم استخراج نص الخطة ({len(text)} حرف)"
+        status = f"✅ تم استخراج نص الخطة ({len(text)} حرف)"
+
+        # ── [DIAG] سطر تشخيصي مؤقت — يُحذف بعد التشخيص ──────────────────────
+        _log.warning("[DIAG] Returning pdf_status=%s", status)
+        # ───────────────────────────────────────────────────────────────────────
+
+        return text, status
 
     except Exception as exc:
         _log.error("فشل معالجة PDF (%s): %s", file_id, exc)
