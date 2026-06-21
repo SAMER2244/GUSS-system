@@ -70,6 +70,86 @@
         </div>
     </div>
 
+    <!-- Edit Submission Modal -->
+    <div id="editSubmissionModal" class="modal-overlay hidden">
+        <div class="modal-card glass-card" style="max-width: 800px; width: 90%; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-pen-to-square"></i> تعديل بيانات التقرير</h3>
+                <button id="btnCloseEditModal" class="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+                <form id="editSubmissionForm">
+                    <input type="hidden" id="editSubmissionId">
+                    
+                    <!-- Basic Info Row -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                        <div class="form-group">
+                            <label for="editSubmitterName"><i class="fa-solid fa-user"></i> المسؤول:</label>
+                            <input type="text" id="editSubmitterName" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="editSubmitterPhone"><i class="fa-solid fa-phone"></i> الهاتف:</label>
+                            <input type="text" id="editSubmitterPhone" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label for="editMonth"><i class="fa-solid fa-calendar"></i> الشهر:</label>
+                            <select id="editMonth" class="form-control" required>
+                                <option value="1">1 - كانون الثاني</option>
+                                <option value="2">2 - شباط</option>
+                                <option value="3">3 - آذار</option>
+                                <option value="4">4 - نيسان</option>
+                                <option value="5">5 - أيار</option>
+                                <option value="6">6 - حزيران</option>
+                                <option value="7">7 - تموز</option>
+                                <option value="8">8 - آب</option>
+                                <option value="9">9 - أيلول</option>
+                                <option value="10">10 - تشرين الأول</option>
+                                <option value="11">11 - تشرين الثاني</option>
+                                <option value="12">12 - كانون الأول</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="editYear"><i class="fa-solid fa-calendar-days"></i> السنة:</label>
+                            <input type="number" id="editYear" class="form-control" min="2020" max="2100" required>
+                        </div>
+                    </div>
+
+                    <!-- Challenges and Notes -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label for="editGeneralChallenges"><i class="fa-solid fa-triangle-exclamation"></i> التحديات العامة:</label>
+                            <textarea id="editGeneralChallenges" class="form-control" rows="3" style="resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="editAdditionalNotes"><i class="fa-solid fa-clipboard-list"></i> ملاحظات إضافية:</label>
+                            <textarea id="editAdditionalNotes" class="form-control" rows="3" style="resize: vertical;"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Tasks Section Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 8px; margin-bottom: 16px;">
+                        <h4 style="color: var(--accent-color); font-size: 14px;"><i class="fa-solid fa-list-check"></i> مهام التقرير</h4>
+                        <button type="button" id="btnAddTask" class="btn btn-outline-sm"><i class="fa-solid fa-plus"></i> إضافة مهمة</button>
+                    </div>
+
+                    <!-- Tasks Container -->
+                    <div id="editTasksContainer" style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 20px;">
+                        <!-- Dynamic tasks will be inserted here -->
+                    </div>
+
+                    <!-- Error Msg -->
+                    <div id="editErrorMsg" class="login-error-msg hidden" style="margin-bottom: 16px;"></div>
+
+                    <!-- Footer Actions -->
+                    <div style="display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--card-border); padding-top: 16px;">
+                        <button type="button" id="btnCancelEdit" class="btn btn-secondary" style="width: auto; padding: 10px 24px;">إلغاء</button>
+                        <button type="submit" class="btn btn-primary" style="width: auto; padding: 10px 24px;"><i class="fa-solid fa-floppy-disk"></i> حفظ التعديلات</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Application Layout -->
     <div id="appLayout" class="app-layout hidden">
         <!-- Sidebar Navigation (Right side in RTL) -->
@@ -129,8 +209,8 @@
             <section id="tabDashboard" class="tab-pane active-pane">
                 <header class="content-header glass-card">
                     <div class="header-info">
-                        <h2>🏛️ لوحة التحكم والمعالجة</h2>
-                        <p>اختر المكاتب والشهر المستهدف لبدء المعالجة الذكية بالذكاء الاصطناعي</p>
+                        <h2>🏛️ لوحة مراقبة وإدارة التقارير</h2>
+                        <p>استعراض ومتابعة تقارير المتابعة الدورية وإدارتها بالذكاء الاصطناعي</p>
                     </div>
                     <div class="system-status-indicator" id="systemStatus">
                         <span class="status-dot green animate-pulse"></span>
@@ -139,84 +219,82 @@
                 </header>
 
                 <div class="dashboard-grid">
-                    <!-- Right Side: Office Grid list (Takes main space) -->
+                    <!-- Right Side: Submissions Table (Takes main space) -->
                     <div class="dashboard-main-col">
-                        <div class="glass-card offices-selection-card">
-                            <div class="offices-header">
-                                <h3><i class="fa-solid fa-building-columns"></i> اختيار المكاتب المستهدفة</h3>
-                                <div class="offices-actions">
-                                    <button id="btnSelectAll" class="btn btn-outline-sm">تحديد الكل</button>
-                                    <button id="btnDeselectAll" class="btn btn-outline-sm">إلغاء التحديد</button>
-                                </div>
+                        <div class="glass-card submissions-card">
+                            <div class="submissions-header">
+                                <h3><i class="fa-solid fa-list-check"></i> قائمة التقارير المرسلة</h3>
                             </div>
 
                             <!-- Search & Filter Controls -->
                             <div class="filters-container">
-                                <div class="search-box">
-                                    <i class="fa-solid fa-magnifying-glass"></i>
-                                    <input type="text" id="officeSearch" placeholder="ابحث عن مكتب بالاسم...">
+                                <div class="filter-group">
+                                    <label for="officeFilter"><i class="fa-solid fa-building-columns"></i> المكتب:</label>
+                                    <select id="officeFilter" class="form-control">
+                                        <option value="all">كل المكاتب</option>
+                                    </select>
                                 </div>
-                                <div class="month-filter-box">
-                                    <i class="fa-solid fa-calendar-days"></i>
-                                    <select id="monthFilterDropdown" class="form-control">
-                                        <option value="all">جميع الأشهر</option>
-                                        <!-- Dynamic months will be injected here -->
+                                <div class="filter-group">
+                                    <label for="monthFilter"><i class="fa-solid fa-calendar-days"></i> الشهر:</label>
+                                    <select id="monthFilter" class="form-control">
+                                        <option value="all">كل الأشهر</option>
+                                        <option value="1">كانون الثاني (1)</option>
+                                        <option value="2">شباط (2)</option>
+                                        <option value="3">آذار (3)</option>
+                                        <option value="4">نيسان (4)</option>
+                                        <option value="5">أيار (5)</option>
+                                        <option value="6">حزيران (6)</option>
+                                        <option value="7">تموز (7)</option>
+                                        <option value="8">آب (8)</option>
+                                        <option value="9">أيلول (9)</option>
+                                        <option value="10">تشرين الأول (10)</option>
+                                        <option value="11">تشرين الثاني (11)</option>
+                                        <option value="12">كانون الأول (12)</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="statusFilter"><i class="fa-solid fa-circle-question"></i> الحالة:</label>
+                                    <select id="statusFilter" class="form-control">
+                                        <option value="all">كل الحالات</option>
+                                        <option value="pending">قيد الانتظار (pending)</option>
+                                        <option value="processed">تمت المعالجة (processed)</option>
+                                        <option value="failed">فشلت المعالجة (failed)</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <!-- Column Map summary banner -->
-                            <div class="column-discovery-banner" id="colMapBanner">
-                                <span class="banner-title"><i class="fa-solid fa-circle-info"></i> خريطة الأعمدة المكتشفة:</span>
-                                <span id="colMapSummary" class="banner-content">جاري قراءة البيانات...</span>
-                            </div>
-
-                            <!-- Office Cards grid -->
-                            <div class="office-grid-container">
-                                <div class="office-grid" id="officeGrid">
-                                    <!-- Skeleton loader -->
-                                    <div class="skeleton-card"></div>
-                                    <div class="skeleton-card"></div>
-                                    <div class="skeleton-card"></div>
-                                    <div class="skeleton-card"></div>
-                                </div>
+                            <!-- Submissions Table Container -->
+                            <div class="submissions-table-container">
+                                <table class="submissions-table">
+                                    <thead>
+                                        <tr>
+                                            <th>اسم المكتب</th>
+                                            <th>المسؤول</th>
+                                            <th>الشهر/السنة</th>
+                                            <th>الحالة</th>
+                                            <th>تاريخ الإرسال</th>
+                                            <th style="text-align: center;">التقرير (Drive)</th>
+                                            <th>إجراءات</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="submissionsTableBody">
+                                        <tr>
+                                            <td colspan="7" class="list-placeholder">جاري تحميل التقارير...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Left Side: Controls & Progress -->
+                    <!-- Left Side: Progress & Running Info -->
                     <div class="dashboard-side-col">
-                        <!-- Run config card -->
-                        <div class="glass-card run-config-card">
-                            <h3><i class="fa-solid fa-play"></i> بدء التشغيل</h3>
-                            <div class="form-group">
-                                <label for="monthSelect"><i class="fa-regular fa-calendar"></i> الشهر المستهدف للتقرير:</label>
-                                <select id="monthSelect" class="form-control">
-                                    <option value="1">كانون الثاني (1)</option>
-                                    <option value="2">شباط (2)</option>
-                                    <option value="3">آذار (3)</option>
-                                    <option value="4">نيسان (4)</option>
-                                    <option value="5">أيار (5)</option>
-                                    <option value="6" selected>حزيران (6)</option>
-                                    <option value="7">تموز (7)</option>
-                                    <option value="8">آب (8)</option>
-                                    <option value="9">أيلول (9)</option>
-                                    <option value="10">تشرين الأول (10)</option>
-                                    <option value="11">تشرين الثاني (11)</option>
-                                    <option value="12">كانون الأول (12)</option>
-                                </select>
-                            </div>
-                            <button id="btnStart" class="btn btn-primary" disabled>
-                                <i class="fa-solid fa-circle-play"></i> بدء معالجة المكاتب المحددة (<span id="selectedCount">0</span>)
-                            </button>
-                        </div>
-
                         <!-- Progress card (shown when running or completed) -->
                         <div class="glass-card progress-card hidden" id="progressCard">
-                            <h3><i class="fa-solid fa-circle-notch fa-spin"></i> حالة المعالجة</h3>
+                            <h3><i class="fa-solid fa-circle-notch fa-spin"></i> حالة المعالجة الحية</h3>
                             <div class="progress-details">
                                 <div class="detail-row">
-                                    <span class="detail-label">المكتب الحالي:</span>
+                                    <span class="detail-label">التقرير الحالي:</span>
                                     <span class="detail-value" id="currentOffice">—</span>
                                 </div>
                                 <div class="detail-row">
@@ -228,13 +306,13 @@
                                 <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
                             </div>
                             <div class="progress-percentage">
-                                <span id="processedCount">0</span> من <span id="totalProcessCount">0</span> مكاتب (<span id="progressPercent">0%</span>)
+                                <span id="processedCount">0</span> من <span id="totalProcessCount">0</span> تقارير (<span id="progressPercent">0%</span>)
                             </div>
                             <div class="running-log-box" id="runningLogs">
                                 <!-- Log entries -->
                             </div>
                             <button id="btnReset" class="btn btn-secondary hidden">
-                                <i class="fa-solid fa-rotate-left"></i> معالجة جديدة
+                                <i class="fa-solid fa-xmark"></i> إغلاق لوحة المعالجة
                             </button>
                         </div>
                     </div>
@@ -281,12 +359,6 @@
                                     <label for="settingGeminiKey">مفتاح Gemini API Key:</label>
                                     <input type="text" id="settingGeminiKey" class="form-control">
                                     <span class="field-help">مفتاح الوصول لنماذج Gemini AI لتوليد التقارير والتدقيق.</span>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="settingSpreadsheetName">اسم جدول البيانات (Google Sheet):</label>
-                                    <input type="text" id="settingSpreadsheetName" class="form-control" required>
-                                    <span class="field-help">اسم ملف Google Sheets الذي يحتوي على ردود الاستمارات للمكاتب.</span>
                                 </div>
                                 
                                 <div class="form-group">

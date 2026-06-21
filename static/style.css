@@ -1469,3 +1469,209 @@ body.dark-mode .system-banner-container {
         border-radius: 12px;
     }
 }
+
+/* ─── Submissions Table ──────────────────────────────────────────────────── */
+.submissions-card {
+    padding: 24px;
+}
+
+.submissions-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.submissions-header h3 {
+    font-size: 15px;
+    color: var(--accent-color);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.submissions-table-container {
+    width: 100%;
+    overflow-x: auto;
+    margin-top: 15px;
+}
+
+.submissions-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: right;
+    font-size: 13px;
+    min-width: 800px;
+}
+
+.submissions-table th, .submissions-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--card-border);
+}
+
+.submissions-table th {
+    font-weight: 700;
+    color: var(--accent-color);
+    background: rgba(0, 0, 0, 0.15);
+}
+
+body.light-mode .submissions-table th {
+    background: rgba(31, 74, 55, 0.04);
+}
+
+.submissions-table tr {
+    transition: background-color 0.2s;
+}
+
+.submissions-table tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+body.light-mode .submissions-table tr:hover {
+    background: rgba(31, 74, 55, 0.02);
+}
+
+/* Status Badges */
+.badge-status {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.badge-status.pending {
+    background: rgba(221, 181, 87, 0.12);
+    color: var(--accent-color);
+    border: 1px solid rgba(221, 181, 87, 0.3);
+}
+
+.badge-status.processed {
+    background: rgba(46, 196, 182, 0.12);
+    color: #2ec4b6;
+    border: 1px solid rgba(46, 196, 182, 0.3);
+}
+
+.badge-status.failed {
+    background: rgba(230, 57, 70, 0.12);
+    color: #ff4d6d;
+    border: 1px solid rgba(230, 57, 70, 0.3);
+}
+
+body.light-mode .badge-status.processed {
+    color: #028090;
+    background: rgba(2, 128, 144, 0.08);
+    border-color: rgba(2, 128, 144, 0.3);
+}
+
+body.light-mode .badge-status.failed {
+    color: #d90429;
+    background: rgba(217, 4, 41, 0.08);
+    border-color: rgba(217, 4, 41, 0.3);
+}
+
+/* Action Buttons */
+.actions-cell {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.btn-table-action {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--card-border);
+    color: var(--text-main);
+    cursor: pointer;
+    font-size: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    outline: none;
+}
+
+body.light-mode .btn-table-action {
+    background: rgba(31, 74, 55, 0.03);
+    color: var(--primary-dark);
+}
+
+.btn-table-action:hover {
+    transform: translateY(-1px);
+}
+
+.btn-table-action.retry:hover {
+    background: rgba(221, 181, 87, 0.15);
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+}
+
+.btn-table-action.edit:hover {
+    background: rgba(46, 196, 182, 0.15);
+    border-color: #2ec4b6;
+    color: #2ec4b6;
+}
+
+.btn-table-action.delete:hover {
+    background: rgba(230, 57, 70, 0.15);
+    border-color: #ff4d6d;
+    color: #ff4d6d;
+}
+
+/* Filter layouts */
+.filters-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 150px;
+}
+
+.filter-group label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Task Cards in Modal */
+.task-card-edit {
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.task-card-edit:hover {
+    border-color: var(--card-hover-border) !important;
+    background: rgba(31, 74, 55, 0.03) !important;
+}
+
+.btn-delete-task:hover {
+    color: #ff4d6d !important;
+    transform: scale(1.1);
+}
+
+/* Scrollbar for modal body */
+.modal-body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.modal-body::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+}
+.modal-body::-webkit-scrollbar-thumb {
+    background: var(--card-border);
+    border-radius: 3px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-color);
+}

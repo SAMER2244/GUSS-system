@@ -19,19 +19,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const navTabBtns = document.querySelectorAll(".nav-tab-btn");
     const tabPanes = document.querySelectorAll(".tab-pane");
 
-    // Dashboard
+    // Dashboard Filters & Table
     const systemStatus = document.getElementById("systemStatus");
-    const monthSelect = document.getElementById("monthSelect");
-    const btnStart = document.getElementById("btnStart");
-    const selectedCountSpan = document.getElementById("selectedCount");
-    const btnSelectAll = document.getElementById("btnSelectAll");
-    const btnDeselectAll = document.getElementById("btnDeselectAll");
-    const officeSearch = document.getElementById("officeSearch");
-    const monthFilterDropdown = document.getElementById("monthFilterDropdown");
-    const colMapSummary = document.getElementById("colMapSummary");
-    const officeGrid = document.getElementById("officeGrid");
+    const officeFilter = document.getElementById("officeFilter");
+    const monthFilter = document.getElementById("monthFilter");
+    const statusFilter = document.getElementById("statusFilter");
+    const submissionsTableBody = document.getElementById("submissionsTableBody");
     const themeToggle = document.getElementById("themeToggle");
     
+    // Edit Submission Modal
+    const editSubmissionModal = document.getElementById("editSubmissionModal");
+    const editSubmissionForm = document.getElementById("editSubmissionForm");
+    const editSubmissionId = document.getElementById("editSubmissionId");
+    const editSubmitterName = document.getElementById("editSubmitterName");
+    const editSubmitterPhone = document.getElementById("editSubmitterPhone");
+    const editMonth = document.getElementById("editMonth");
+    const editYear = document.getElementById("editYear");
+    const editGeneralChallenges = document.getElementById("editGeneralChallenges");
+    const editAdditionalNotes = document.getElementById("editAdditionalNotes");
+    const editTasksContainer = document.getElementById("editTasksContainer");
+    const btnAddTask = document.getElementById("btnAddTask");
+    const editErrorMsg = document.getElementById("editErrorMsg");
+    const btnCloseEditModal = document.getElementById("btnCloseEditModal");
+    const btnCancelEdit = document.getElementById("btnCancelEdit");
+
     // Process Progress
     const progressCard = document.getElementById("progressCard");
     const currentOffice = document.getElementById("currentOffice");
@@ -50,7 +61,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // Settings Panel
     const settingsForm = document.getElementById("settingsForm");
     const settingGeminiKey = document.getElementById("settingGeminiKey");
-    const settingSpreadsheetName = document.getElementById("settingSpreadsheetName");
     const settingDriveFolder = document.getElementById("settingDriveFolder");
     const settingDefaultModel = document.getElementById("settingDefaultModel");
     const settingFallbackModel = document.getElementById("settingFallbackModel");
@@ -58,8 +68,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const settingAdminPassword = document.getElementById("settingAdminPassword");
 
     // ─── App State ───────────────────────────────────────────────────────────
-    let allOffices = [];
-    let selectedOffices = new Set();
     let statusInterval = null;
     let localReports = [];
     let authenticated = false;
@@ -120,7 +128,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function initApp() {
-        fetchOffices();
+        fetchOfficesFilter();
+        fetchSubmissions();
         fetchReports();
         checkRunningStatusOnLoad();
     }
@@ -216,111 +225,444 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (targetTab === "reports") {
                 fetchReports();
             } else if (targetTab === "dashboard") {
-                fetchOffices();
+                fetchSubmissions();
             }
         });
     });
 
-    // ─── Fetch Offices & Month List Extraction ────────────────────────────────
-    function parseDate(dateStr) {
-        if (!dateStr || dateStr === "—") return new Date(0);
+    // ─── Fetch Offices for Filter ─────────────────────────────────────────────
+    async function fetchOfficesFilter() {
         try {
-            dateStr = dateStr.trim();
-            const parts = dateStr.split(" ");
-            const dateParts = parts[0].split(dateStr.includes("/") ? "/" : "-");
-            const timeParts = parts[1] ? parts[1].split(":") : [0, 0];
+            const res = await apiFetch("/api/offices-list");
+            const data = await res.json();
             
-            if (dateStr.includes("/")) {
-                const day = parseInt(dateParts[0]);
-                const month = parseInt(dateParts[1]) - 1;
-                const year = parseInt(dateParts[2]);
-                const hour = parseInt(timeParts[0]);
-                const min = parseInt(timeParts[1]);
-                return new Date(year, month, day, hour, min);
-            } else {
-                const year = parseInt(dateParts[0]);
-                const month = parseInt(dateParts[1]) - 1;
-                const day = parseInt(dateParts[2]);
-                const hour = parseInt(timeParts[0]);
-                const min = parseInt(timeParts[1]);
-                return new Date(year, month, day, hour, min);
+            // Clear and populate select
+            officeFilter.innerHTML = '<option value="all">كل المكاتب</option>';
+            if (data.offices && data.offices.length > 0) {
+                data.offices.forEach(office => {
+                    const option = document.createElement("option");
+                    option.value = office.id;
+                    option.textContent = office.name;
+                    officeFilter.appendChild(option);
+                });
             }
-        } catch (e) {
-            console.error("Error parsing date: " + dateStr, e);
-            return new Date(0);
+        } catch (err) {
+            console.error("Failed to fetch offices list for filter:", err);
         }
     }
 
-    async function fetchOffices() {
-        setConnectionStatus("connecting", "جاري الاتصال بالجدول...");
+    // ─── Fetch Submissions with Filters ───────────────────────────────────────
+    async function fetchSubmissions() {
+        setConnectionStatus("connecting", "جاري تحميل التقارير...");
         try {
-            const res = await apiFetch("/api/offices");
-            const data = await res.json();
-            allOffices = data.offices;
+            let url = "/api/submissions";
+            const params = [];
             
-            // Sort offices descending by timestamp (newest first)
-            allOffices.sort((a, b) => parseDate(b.timestamp) - parseDate(a.timestamp));
+            if (officeFilter.value !== "all") {
+                params.push(`office_id=${officeFilter.value}`);
+            }
+            if (monthFilter.value !== "all") {
+                params.push(`month=${monthFilter.value}`);
+            }
+            if (statusFilter.value !== "all") {
+                params.push(`status=${statusFilter.value}`);
+            }
             
-            // Build dynamic Month Filter Options based on office target months
-            populateMonthFilterDropdown();
+            if (params.length > 0) {
+                url += "?" + params.join("&");
+            }
 
-            // Render Column discovery
-            renderColumnMapSummary(data.column_map);
+            const res = await apiFetch(url);
+            const data = await res.json();
             
-            // Render offices
-            renderOffices(allOffices);
-            setConnectionStatus("connected", "متصل بالجدول");
+            renderSubmissionsTable(data.submissions);
+            setConnectionStatus("connected", "متصل بالخادم");
         } catch (err) {
-            console.error(err);
-            setConnectionStatus("error", "فشل جلب المكاتب");
-            officeGrid.innerHTML = `
-                <div class="list-placeholder" style="grid-column: 1 / -1; color: #ff4d6d;">
-                    <i class="fa-solid fa-triangle-exclamation" style="font-size: 24px; margin-bottom: 8px;"></i>
-                    <p>فشل الاتصال بخادم البيانات. يرجى التحقق من اسم ملف الـ Spreadsheet ومفاتيح الربط في الإعدادات.</p>
-                </div>
+            console.error("Failed to fetch submissions:", err);
+            setConnectionStatus("error", "فشل جلب التقارير");
+            submissionsTableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="list-placeholder text-danger">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size: 20px; margin-bottom: 8px; display: block;"></i>
+                        فشل الاتصال بالخادم لجلب قائمة التقارير.
+                    </td>
+                </tr>
             `;
         }
     }
 
-    // Dynamic month selection list extraction
-    function populateMonthFilterDropdown() {
-        // Collect unique month keys
-        const monthKeys = new Set();
-        const monthsList = [];
-
-        allOffices.forEach(office => {
-            if (office.target_month_name && office.timestamp) {
-                const yearDate = parseDate(office.timestamp);
-                const year = yearDate.getFullYear() !== 1970 ? yearDate.getFullYear() : new Date().getFullYear();
-                const displayMonth = `${office.target_month_name} ${year}`;
-                if (!monthKeys.has(displayMonth)) {
-                    monthKeys.add(displayMonth);
-                    monthsList.push({
-                        text: displayMonth,
-                        monthName: office.target_month_name,
-                        year: year
-                    });
-                }
-            }
-        });
-
-        // Store selected value to preserve it if reloading
-        const previousSelection = monthFilterDropdown.value;
-
-        // Reset dropdown except first
-        monthFilterDropdown.innerHTML = '<option value="all">جميع الأشهر</option>';
-        monthsList.forEach(m => {
-            const option = document.createElement("option");
-            option.value = m.text;
-            option.textContent = m.text;
-            monthFilterDropdown.appendChild(option);
-        });
-
-        // Restore previous selection if still exists
-        if (monthKeys.has(previousSelection)) {
-            monthFilterDropdown.value = previousSelection;
+    // ─── Format Date ─────────────────────────────────────────────────────────
+    function formatDate(isoStr) {
+        if (!isoStr) return "—";
+        try {
+            const date = new Date(isoStr);
+            return date.toLocaleString("ar-SY", {
+                dateStyle: "short",
+                timeStyle: "short"
+            });
+        } catch (e) {
+            return isoStr;
         }
     }
+
+    // ─── Render Submissions Table ─────────────────────────────────────────────
+    function renderSubmissionsTable(submissions) {
+        if (!submissions || submissions.length === 0) {
+            submissionsTableBody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="list-placeholder">لا توجد تقارير مطابقة للفلاتر المحددة حالياً.</td>
+                </tr>
+            `;
+            return;
+        }
+        
+        submissionsTableBody.innerHTML = "";
+        submissions.forEach(sub => {
+            const row = document.createElement("tr");
+            
+            // Status Badge
+            let statusClass = "pending";
+            let statusText = "قيد الانتظار";
+            if (sub.status === "processed") {
+                statusClass = "processed";
+                statusText = "تمت المعالجة";
+            } else if (sub.status === "failed") {
+                statusClass = "failed";
+                statusText = "فشلت المعالجة";
+            }
+            const statusBadge = `<span class="badge-status ${statusClass}">${statusText}</span>`;
+            
+            // Drive link column
+            let driveLinkHtml = "—";
+            if (sub.drive_report_link) {
+                driveLinkHtml = `
+                    <a href="${sub.drive_report_link}" target="_blank" class="btn-table-action" title="فتح بـ Drive" style="text-decoration: none;">
+                        <i class="fa-brands fa-google-drive" style="color: var(--accent-color); font-size: 14px;"></i>
+                    </a>
+                `;
+            }
+            
+            // Action Buttons: Retry | Edit | Delete
+            const actionsHtml = `
+                <div class="actions-cell">
+                    <button class="btn-table-action retry" data-id="${sub.id}" title="إعادة معالجة (Retry)">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                    <button class="btn-table-action edit" data-id="${sub.id}" title="تعديل (Edit)">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button class="btn-table-action delete" data-id="${sub.id}" title="حذف (Delete)">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            `;
+            
+            row.innerHTML = `
+                <td><strong>${sub.office_name || "—"}</strong></td>
+                <td>${sub.submitter_name || "—"}</td>
+                <td>${sub.month}/${sub.year}</td>
+                <td>${statusBadge}</td>
+                <td>${formatDate(sub.created_at)}</td>
+                <td style="text-align: center;">${driveLinkHtml}</td>
+                <td>${actionsHtml}</td>
+            `;
+            
+            submissionsTableBody.appendChild(row);
+        });
+        
+        // Add Event Listeners for actions
+        submissionsTableBody.querySelectorAll(".btn-table-action.retry").forEach(btn => {
+            btn.addEventListener("click", () => handleRetry(parseInt(btn.dataset.id)));
+        });
+        submissionsTableBody.querySelectorAll(".btn-table-action.edit").forEach(btn => {
+            btn.addEventListener("click", () => handleEdit(parseInt(btn.dataset.id)));
+        });
+        submissionsTableBody.querySelectorAll(".btn-table-action.delete").forEach(btn => {
+            btn.addEventListener("click", () => handleDelete(parseInt(btn.dataset.id)));
+        });
+    }
+
+    // ─── Action Handlers ──────────────────────────────────────────────────────
+    async function handleRetry(submissionId) {
+        progressCard.classList.remove("hidden");
+        btnReset.classList.add("hidden");
+        runningLogs.innerHTML = "";
+        currentOffice.textContent = "—";
+        currentStage.textContent = "جاري الاتصال بالخادم لبدء المعالجة...";
+        progressBarFill.style.width = "0%";
+        progressPercent.textContent = "0%";
+        processedCount.textContent = "0";
+        totalProcessCount.textContent = "1";
+        
+        appendLog("info", `جاري بدء معالجة التقرير رقم ${submissionId}...`);
+        
+        try {
+            const res = await apiFetch("/api/process", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ submission_id: submissionId })
+            });
+            
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "فشل بدء معالجة التقرير.");
+            }
+            
+            startPollingStatus();
+        } catch (err) {
+            console.error(err);
+            appendLog("error", `خطأ أثناء بدء التشغيل: ${err.message}`);
+        }
+    }
+
+    async function handleDelete(submissionId) {
+        if (!confirm("هل أنت متأكد من حذف هذا التقرير؟ هذا الإجراء لا يمكن التراجع عنه وسيحذف الملف المرفق من السيرفر نهائياً.")) return;
+        try {
+            const res = await apiFetch(`/api/submissions/${submissionId}`, {
+                method: "DELETE"
+            });
+            if (res.ok) {
+                alert("تم حذف التقرير بنجاح.");
+                fetchSubmissions();
+            } else {
+                const errData = await res.json();
+                alert("فشل حذف التقرير: " + (errData.detail || "خطأ غير معروف"));
+            }
+        } catch (err) {
+            console.error("Delete error:", err);
+            alert("خطأ في الاتصال بالخادم لحذف التقرير.");
+        }
+    }
+
+    async function handleEdit(submissionId) {
+        try {
+            const res = await apiFetch(`/api/submissions/${submissionId}`);
+            if (!res.ok) {
+                const errData = await res.json();
+                alert("فشل جلب تفاصيل التقرير: " + (errData.detail || "خطأ غير معروف"));
+                return;
+            }
+            const submission = await res.json();
+            
+            // Fill form fields
+            editSubmissionId.value = submission.id;
+            editSubmitterName.value = submission.submitter_name || "";
+            editSubmitterPhone.value = submission.submitter_phone || "";
+            editMonth.value = submission.month;
+            editYear.value = submission.year;
+            editGeneralChallenges.value = submission.general_challenges || "";
+            editAdditionalNotes.value = submission.additional_notes || "";
+            
+            // Clear and fill tasks
+            editTasksContainer.innerHTML = "";
+            if (submission.tasks && submission.tasks.length > 0) {
+                submission.tasks.forEach((task, idx) => {
+                    addTaskCard(task, idx + 1);
+                });
+            } else {
+                // Default empty task card if none
+                addTaskCard({}, 1);
+            }
+            
+            // Hide error msg
+            editErrorMsg.classList.add("hidden");
+            editErrorMsg.textContent = "";
+            
+            // Open modal
+            editSubmissionModal.classList.remove("hidden");
+        } catch (err) {
+            console.error("Edit fetch error:", err);
+            alert("خطأ في الاتصال بالخادم لجلب تفاصيل التقرير.");
+        }
+    }
+
+    function addTaskCard(task = {}, number) {
+        const card = document.createElement("div");
+        card.className = "task-card-edit glass-card";
+        card.style.cssText = "padding: 20px; position: relative; border: 1px solid var(--card-border); border-radius: 12px; background: rgba(255,255,255,0.01); display: flex; flex-direction: column; gap: 12px;";
+        
+        const taskNum = number || (editTasksContainer.children.length + 1);
+        
+        card.innerHTML = `
+            <button type="button" class="btn-delete-task" style="position: absolute; top: 12px; left: 12px; background: none; border: none; color: #ff4d6d; cursor: pointer; font-size: 16px; transition: color 0.2s;" title="حذف المهمة">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+            <h5 class="task-number-title" style="margin: 0 0 4px 0; color: var(--accent-color); font-size: 13px; font-weight: 700;">المهمة #${taskNum}</h5>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>اسم المهمة <span style="color: #ff4d6d;">*</span>:</label>
+                    <input type="text" class="form-control task-name-input" value="${task.task_name || ""}" required placeholder="أدخل اسم المهمة">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>المسؤول عنها <span style="color: #ff4d6d;">*</span>:</label>
+                    <input type="text" class="form-control task-manager-input" value="${task.manager_name || ""}" required placeholder="أدخل اسم المسؤول">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>هاتف المسؤول:</label>
+                    <input type="text" class="form-control task-phone-input" value="${task.manager_phone || ""}" placeholder="أدخل رقم الهاتف">
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>نوع المهمة:</label>
+                    <select class="form-control task-type-select">
+                        <option value="ضمن الخطة الشهرية" ${task.task_type === "ضمن الخطة الشهرية" ? "selected" : ""}>ضمن الخطة الشهرية</option>
+                        <option value="خارج الخطة الشهرية" ${task.task_type === "خارج الخطة الشهرية" ? "selected" : ""}>خارج الخطة الشهرية</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>حالة المهمة:</label>
+                    <select class="form-control task-status-select">
+                        <option value="مكتملة" ${task.task_status === "مكتملة" ? "selected" : ""}>مكتملة</option>
+                        <option value="قيد التنفيذ" ${task.task_status === "قيد التنفيذ" ? "selected" : ""}>قيد التنفيذ</option>
+                        <option value="ملغاة" ${task.task_status === "ملغاة" ? "selected" : ""}>ملغاة</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>الوصف التفصيلي:</label>
+                    <textarea class="form-control task-desc-input" rows="2" placeholder="وصف موجز للمهمة">${task.task_description || ""}</textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>آلية التنفيذ:</label>
+                    <textarea class="form-control task-mechanism-input" rows="2" placeholder="كيف تم أو سيتم التنفيذ">${task.execution_mechanism || ""}</textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>المشاكل/العقبات:</label>
+                    <textarea class="form-control task-issues-input" rows="2" placeholder="أي صعوبات واجهت التنفيذ">${task.issues || ""}</textarea>
+                </div>
+            </div>
+        `;
+        
+        // Handle delete task button click
+        card.querySelector(".btn-delete-task").addEventListener("click", () => {
+            card.remove();
+            renumberTaskCards();
+        });
+        
+        editTasksContainer.appendChild(card);
+    }
+
+    function renumberTaskCards() {
+        Array.from(editTasksContainer.children).forEach((card, idx) => {
+            card.querySelector(".task-number-title").textContent = `المهمة #${idx + 1}`;
+        });
+    }
+
+    // Submit Edit Form Handler
+    editSubmissionForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        editErrorMsg.classList.add("hidden");
+        editErrorMsg.textContent = "";
+        
+        const id = editSubmissionId.value;
+        const submitterName = editSubmitterName.value.trim();
+        const submitterPhone = editSubmitterPhone.value.trim();
+        const month = parseInt(editMonth.value);
+        const year = parseInt(editYear.value);
+        const generalChallenges = editGeneralChallenges.value.trim();
+        const additionalNotes = editAdditionalNotes.value.trim();
+        
+        // Gather tasks
+        const taskCards = editTasksContainer.children;
+        if (taskCards.length === 0) {
+            editErrorMsg.textContent = "يجب أن يحتوي التقرير على مهمة واحدة على الأقل.";
+            editErrorMsg.classList.remove("hidden");
+            return;
+        }
+        
+        const tasks = [];
+        for (let i = 0; i < taskCards.length; i++) {
+            const card = taskCards[i];
+            const taskName = card.querySelector(".task-name-input").value.trim();
+            const managerName = card.querySelector(".task-manager-input").value.trim();
+            const managerPhone = card.querySelector(".task-phone-input").value.trim();
+            const taskType = card.querySelector(".task-type-select").value;
+            const taskStatus = card.querySelector(".task-status-select").value;
+            const taskDescription = card.querySelector(".task-desc-input").value.trim();
+            const executionMechanism = card.querySelector(".task-mechanism-input").value.trim();
+            const issues = card.querySelector(".task-issues-input").value.trim();
+            
+            if (!taskName || !managerName) {
+                editErrorMsg.textContent = `يرجى ملء الحقول المطلوبة (اسم المهمة والمسؤول عنها) للمهمة #${i + 1}.`;
+                editErrorMsg.classList.remove("hidden");
+                return;
+            }
+            
+            tasks.push({
+                manager_name: managerName,
+                manager_phone: managerPhone || null,
+                task_name: taskName,
+                task_description: taskDescription || null,
+                task_type: taskType,
+                execution_mechanism: executionMechanism || null,
+                task_status: taskStatus,
+                issues: issues || null
+            });
+        }
+        
+        // Build payload
+        const payload = {
+            submitter_name: submitterName,
+            submitter_phone: submitterPhone || null,
+            month: month,
+            year: year,
+            general_challenges: generalChallenges || null,
+            additional_notes: additionalNotes || null,
+            tasks: tasks
+        };
+        
+        try {
+            const res = await apiFetch(`/api/submissions/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            
+            if (res.ok) {
+                alert("تم تحديث التقرير بنجاح!");
+                editSubmissionModal.classList.add("hidden");
+                fetchSubmissions();
+            } else {
+                const errData = await res.json();
+                editErrorMsg.textContent = errData.detail || "فشل تحديث التقرير.";
+                editErrorMsg.classList.remove("hidden");
+            }
+        } catch (err) {
+            console.error("Patch submission error:", err);
+            editErrorMsg.textContent = "خطأ في الاتصال بالخادم لحفظ التعديلات.";
+            editErrorMsg.classList.remove("hidden");
+        }
+    });
+
+    // Close Modals
+    btnCloseEditModal.addEventListener("click", () => {
+        editSubmissionModal.classList.add("hidden");
+    });
+    btnCancelEdit.addEventListener("click", () => {
+        editSubmissionModal.classList.add("hidden");
+    });
+    editSubmissionModal.addEventListener("click", (e) => {
+        if (e.target === editSubmissionModal) {
+            editSubmissionModal.classList.add("hidden");
+        }
+    });
+    btnAddTask.addEventListener("click", () => {
+        addTaskCard({}, editTasksContainer.children.length + 1);
+    });
+
+    // Filter change listeners
+    officeFilter.addEventListener("change", fetchSubmissions);
+    monthFilter.addEventListener("change", fetchSubmissions);
+    statusFilter.addEventListener("change", fetchSubmissions);
+    
+    reportSearch.addEventListener("input", filterReports);
+    btnReset.addEventListener("click", resetPipeline);
 
     // ─── Fetch Reports List ──────────────────────────────────────────────────
     async function fetchReports() {
@@ -342,8 +684,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const state = await res.json();
             if (state.status === "running") {
                 progressCard.classList.remove("hidden");
-                btnStart.disabled = true;
-                monthSelect.disabled = true;
                 startPollingStatus();
             }
         } catch (err) {
@@ -365,206 +705,6 @@ document.addEventListener("DOMContentLoaded", () => {
             dot.classList.add("yellow", "animate-pulse");
         } else {
             dot.classList.add("red");
-        }
-    }
-
-    function renderColumnMapSummary(colMap) {
-        if (!colMap) return;
-        const taskCount = colMap.tasks ? colMap.tasks.length : 0;
-        colMapSummary.innerHTML = `
-            اسم المكتب (العمود ${colMap.office_name}) | 
-            مقدم التقرير (العمود ${colMap.submitter}) | 
-            تم اكتشاف <strong>${taskCount} مهام</strong> ديناميكياً.
-        `;
-    }
-
-    function renderOffices(offices) {
-        if (offices.length === 0) {
-            officeGrid.innerHTML = `<div class="list-placeholder" style="grid-column: 1 / -1;">الجدول لا يحتوي على أي صفوف مكاتب حالياً.</div>`;
-            return;
-        }
-        
-        // Calculate duplicate submissions based on name + target_month_name
-        const counts = {};
-        offices.forEach(office => {
-            const key = `${office.name.trim()}_${(office.target_month_name || "").trim()}`;
-            counts[key] = (counts[key] || 0) + 1;
-        });
-        const seen = {};
-        
-        officeGrid.innerHTML = "";
-        offices.forEach(office => {
-            const card = document.createElement("div");
-            card.className = "office-card";
-            card.dataset.id = office.id;
-            
-            // Preserve selection
-            if (selectedOffices.has(office.id)) {
-                card.classList.add("selected");
-            }
-            
-            const badgeMonth = office.target_month_name ? `<span class="badge-month">${office.target_month_name}</span>` : "";
-            const submitterText = office.submitter ? `<div class="office-meta-item"><i class="fa-solid fa-user"></i> مقدم التقرير: ${office.submitter}</div>` : "";
-            
-            // Build duplicate badge if applicable
-            let duplicateBadge = "";
-            const dupKey = `${office.name.trim()}_${(office.target_month_name || "").trim()}`;
-            if (counts[dupKey] > 1) {
-                if (!seen[dupKey]) {
-                    seen[dupKey] = true;
-                    duplicateBadge = `<span class="badge-duplicate latest"><i class="fa-solid fa-clock-rotate-left"></i> أحدث إرسال</span>`;
-                } else {
-                    duplicateBadge = `<span class="badge-duplicate older"><i class="fa-solid fa-triangle-exclamation"></i> نسخة سابقة (مكررة)</span>`;
-                }
-            }
-
-            card.innerHTML = `
-                <div class="checkbox-custom">
-                    <i class="fa-solid fa-check"></i>
-                </div>
-                <div class="office-card-content">
-                    <span class="office-card-name">${office.name}</span>
-                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                        ${badgeMonth}
-                        ${duplicateBadge}
-                    </div>
-                    <div class="office-card-meta">
-                        ${submitterText}
-                        <div class="office-meta-item"><i class="fa-regular fa-calendar-days"></i> تاريخ رفع التقرير: ${office.timestamp}</div>
-                    </div>
-                </div>
-            `;
-            
-            card.addEventListener("click", () => toggleOfficeSelection(office.id, card));
-            officeGrid.appendChild(card);
-        });
-        
-        applyFilters(); // Apply search & filter immediately on render
-    }
-
-    function toggleOfficeSelection(id, cardElement) {
-        if (selectedOffices.has(id)) {
-            selectedOffices.delete(id);
-            cardElement.classList.remove("selected");
-        } else {
-            selectedOffices.add(id);
-            cardElement.classList.add("selected");
-        }
-        updateStartButtonState();
-    }
-
-    function updateStartButtonState() {
-        btnStart.disabled = selectedOffices.size === 0;
-        selectedCountSpan.textContent = selectedOffices.size;
-    }
-
-    function selectAllOffices() {
-        // Select only visible cards
-        const visibleCards = officeGrid.querySelectorAll(".office-card");
-        visibleCards.forEach(card => {
-            if (card.style.display !== "none") {
-                const id = parseInt(card.dataset.id);
-                selectedOffices.add(id);
-                card.classList.add("selected");
-            }
-        });
-        updateStartButtonState();
-    }
-
-    function deselectAllOffices() {
-        // Deselect only visible cards
-        const visibleCards = officeGrid.querySelectorAll(".office-card");
-        visibleCards.forEach(card => {
-            if (card.style.display !== "none") {
-                const id = parseInt(card.dataset.id);
-                selectedOffices.delete(id);
-                card.classList.remove("selected");
-            }
-        });
-        updateStartButtonState();
-    }
-
-    // Search and Dropdown Filter synchronization
-    function applyFilters() {
-        const query = officeSearch.value.toLowerCase().trim();
-        const selectedMonth = monthFilterDropdown.value; // e.g. "حزيران 2026" or "all"
-
-        const cards = officeGrid.querySelectorAll(".office-card");
-        
-        cards.forEach(card => {
-            const officeId = parseInt(card.dataset.id);
-            const office = allOffices.find(o => o.id === officeId);
-            if (!office) return;
-
-            const name = office.name.toLowerCase();
-            const submitter = (office.submitter || "").toLowerCase();
-            const yearDate = parseDate(office.timestamp);
-            const tsYear = yearDate.getFullYear() !== 1970 ? yearDate.getFullYear() : new Date().getFullYear();
-            const officeMonth = office.target_month_name ? `${office.target_month_name} ${tsYear}` : "";
-            
-            // Check keyword match
-            const matchesKeyword = name.includes(query) || submitter.includes(query);
-            
-            // Check month dropdown match
-            const matchesMonth = (selectedMonth === "all") || (officeMonth === selectedMonth);
-
-            if (matchesKeyword && matchesMonth) {
-                card.style.display = "flex";
-            } else {
-                card.style.display = "none";
-            }
-        });
-    }
-
-    officeSearch.addEventListener("input", applyFilters);
-    monthFilterDropdown.addEventListener("change", applyFilters);
-    btnSelectAll.addEventListener("click", selectAllOffices);
-    btnDeselectAll.addEventListener("click", deselectAllOffices);
-    reportSearch.addEventListener("input", filterReports);
-    btnStart.addEventListener("click", startProcessing);
-    btnReset.addEventListener("click", resetPipeline);
-
-    // ─── Process Pipeline Operations ──────────────────────────────────────────
-    async function startProcessing() {
-        if (selectedOffices.size === 0) return;
-        
-        btnStart.disabled = true;
-        monthSelect.disabled = true;
-        progressCard.classList.remove("hidden");
-        btnReset.classList.add("hidden");
-        runningLogs.innerHTML = "";
-        
-        const selectedRows = allOffices
-            .filter(off => selectedOffices.has(off.id))
-            .map(off => off.raw_row);
-            
-        const monthNum = parseInt(monthSelect.value);
-        const monthName = monthSelect.options[monthSelect.selectedIndex].text.split(" ")[0];
-        
-        appendLog("info", `جاري بدء معالجة عدد ${selectedRows.length} مكاتب لشهر ${monthName}...`);
-        
-        try {
-            const res = await apiFetch("/api/process", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    selected_rows: selectedRows,
-                    target_month_num: monthNum,
-                    target_month_name: monthName
-                })
-            });
-            
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(errData.detail || "Failed to start pipeline processing");
-            }
-            
-            startPollingStatus();
-        } catch (err) {
-            console.error(err);
-            appendLog("error", `خطأ أثناء بدء التشغيل: ${err.message}`);
-            btnStart.disabled = false;
-            monthSelect.disabled = false;
         }
     }
 
@@ -593,6 +733,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusInterval = null;
                 btnReset.classList.remove("hidden");
                 fetchReports();
+                fetchSubmissions();
             }
         } catch (err) {
             console.error("Status polling error:", err);
@@ -648,8 +789,6 @@ document.addEventListener("DOMContentLoaded", () => {
             
             progressCard.classList.add("hidden");
             btnReset.classList.add("hidden");
-            btnStart.disabled = selectedOffices.size === 0;
-            monthSelect.disabled = false;
             
             lastLoggedResultsCount = 0;
             lastOfficeLogged = "";
@@ -719,6 +858,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Filter Local Reports
     function filterReports() {
         const query = reportSearch.value.toLowerCase().trim();
         const items = reportsList.querySelectorAll(".report-item");
@@ -740,12 +880,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             
             settingGeminiKey.value = data.gemini_api_key || "";
-            settingSpreadsheetName.value = data.spreadsheet_name || "";
             settingDriveFolder.value = data.drive_system_folder || "";
             settingDefaultModel.value = data.default_model || "";
             settingFallbackModel.value = data.fallback_model || "";
             settingAdminUsername.value = data.admin_username || "";
-            settingAdminPassword.value = data.admin_password || "";
+            settingAdminPassword.value = ""; // Clear password input mask
         } catch (err) {
             console.error("Failed to load settings:", err);
             alert("حدث خطأ أثناء تحميل الإعدادات من الخادم.");
@@ -756,20 +895,19 @@ document.addEventListener("DOMContentLoaded", () => {
         e.preventDefault();
         
         const payload = {
-            spreadsheet_name: settingSpreadsheetName.value.trim(),
             drive_system_folder: settingDriveFolder.value.trim(),
             default_model: settingDefaultModel.value.trim(),
             fallback_model: settingFallbackModel.value.trim(),
             admin_username: settingAdminUsername.value.trim()
         };
 
-        // If key is not masked representation, include it (or include empty string if cleared)
+        // If key is not masked representation, include it
         const keyVal = settingGeminiKey.value.trim();
         if (keyVal === "" || (keyVal && !keyVal.includes("...") && !keyVal.includes("*"))) {
             payload.gemini_api_key = keyVal;
         }
 
-        // If password is changed from asterisk mask, include it
+        // If password is changed, include it
         const passVal = settingAdminPassword.value;
         if (passVal && passVal !== "********") {
             payload.admin_password = passVal;
@@ -783,8 +921,8 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (res.ok) {
-                alert("تم حفظ وتحديث الإعدادات في settings.yaml والذاكرة بنجاح!");
-                fetchSettings(); // reload to get new masks
+                alert("تم حفظ وتحديث الإعدادات بنجاح!");
+                fetchSettings();
             } else {
                 const errData = await res.json();
                 alert("فشل حفظ الإعدادات: " + (errData.detail || "خطأ غير معروف"));
