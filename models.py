@@ -1,15 +1,15 @@
 """
-models.py — Pydantic Models for Form Submissions
-=================================================
-نماذج البيانات (Pydantic) لاستقبال وإرجاع بيانات الفورم الشهري.
+models.py — Pydantic Models for Form Submissions & Dashboard
+=============================================================
+نماذج البيانات (Pydantic) لاستقبال وإرجاع بيانات الفورم الشهري
+ولوحة التحكم (submissions list/detail/patch/delete).
 
-ملاحظة: هذه النماذج مخصصة للفورم الجديد (Supabase) فقط.
-النماذج الموجودة في web_server.py (ProcessRequest, LoginRequest, ...) تبقى كما هي.
+ملاحظة: النماذج الموجودة في web_server.py (ProcessRequest, LoginRequest, ...) تبقى كما هي.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -122,3 +122,71 @@ class SubmitReportResponse(BaseModel):
     status: str = "success"
     submission_id: int
     message: str
+
+
+# ─── Dashboard Models — Read ─────────────────────────────────────────────────
+
+class SubmissionListItem(BaseModel):
+    """عنصر في قائمة التقارير — يُرجعه GET /api/submissions."""
+
+    id: int
+    office_name: str
+    submitter_name: str
+    month: int
+    year: int
+    status: str
+    created_at: str
+    drive_report_link: Optional[str] = None
+
+
+class SubmissionDetail(BaseModel):
+    """تفاصيل تقرير كاملة — يُرجعها GET /api/submissions/{id}."""
+
+    id: int
+    office_id: int
+    office_name: str
+    submitter_name: str
+    submitter_phone: Optional[str] = None
+    month: int
+    year: int
+    has_plan: bool
+    plan_file_path: Optional[str] = None
+    general_challenges: Optional[str] = None
+    additional_notes: Optional[str] = None
+    status: str
+    created_at: str
+    drive_report_link: Optional[str] = None
+    tasks: List[Dict[str, Any]] = []
+
+
+# ─── Dashboard Models — Patch ────────────────────────────────────────────────
+
+class PatchTaskInput(BaseModel):
+    """بيانات مهمة واحدة لاستبدال قائمة المهام عبر PATCH."""
+
+    manager_name: str = Field(..., min_length=1)
+    manager_phone: Optional[str] = None
+    task_name: str = Field(..., min_length=1)
+    task_description: Optional[str] = None
+    task_type: str = Field(...)
+    execution_mechanism: Optional[str] = None
+    task_status: str = Field(...)
+    issues: Optional[str] = None
+
+
+class PatchSubmissionRequest(BaseModel):
+    """
+    طلب تعديل تقرير موجود — PATCH /api/submissions/{id}.
+
+    جميع الحقول اختيارية؛ يُعدَّل فقط ما يُرسَل.
+    إذا أُرسلت tasks يجب أن تحتوي عنصراً واحداً على الأقل.
+    """
+
+    submitter_name: Optional[str] = None
+    submitter_phone: Optional[str] = None
+    general_challenges: Optional[str] = None
+    additional_notes: Optional[str] = None
+    month: Optional[int] = Field(default=None, ge=1, le=12)
+    year: Optional[int] = Field(default=None, ge=2020, le=2100)
+    tasks: Optional[List[PatchTaskInput]] = None
+

@@ -45,12 +45,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
+from routes.dashboard import router as dashboard_router
+
 # تسجيل router الفورم الجديد (Supabase submissions)
 app.include_router(submissions_router)
+
+# تسجيل router لوحة التحكم (admin-only dashboard endpoints)
+app.include_router(dashboard_router)
 
 # تأمين وحماية مفتاح التوكن الافتراضي
 if cfg.JWT_SECRET_KEY == "guss_secret_key_2026_xyz":
@@ -88,7 +93,6 @@ class LoginRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     gemini_api_key: Optional[str] = None
-    spreadsheet_name: Optional[str] = None
     drive_system_folder: Optional[str] = None
     default_model: Optional[str] = None
     fallback_model: Optional[str] = None
@@ -252,8 +256,11 @@ def _background_pipeline_runner(submission_id: int):
         )
         drive_link = f"https://drive.google.com/file/d/{file_id}/view?usp=drivesdk"
         
-        # 7. تحديث حالة التقرير في قاعدة البيانات إلى 'processed'
-        db.table("submissions").update({"status": "processed"}).eq("id", submission_id).execute()
+        # 7. تحديث حالة التقرير في قاعدة البيانات إلى 'processed' وحفظ رابط Drive
+        db.table("submissions").update({
+            "status": "processed",
+            "drive_report_link": drive_link
+        }).eq("id", submission_id).execute()
         
         # إنجاز ناجح
         _log.info(f"Submission {submission_id} for {office_name} processed successfully!")
@@ -336,7 +343,6 @@ def mask_api_key(key: str) -> str:
 def api_get_settings(current_user: str = Depends(get_current_user)):
     return {
         "gemini_api_key": mask_api_key(cfg.GEMINI_API_KEY),
-        "spreadsheet_name": cfg.SPREADSHEET_NAME,
         "drive_system_folder": cfg.DRIVE_SYSTEM_FOLDER,
         "default_model": cfg.GEMINI_MODEL_DEFAULT,
         "fallback_model": cfg.GEMINI_MODEL_FALLBACK,
@@ -379,12 +385,6 @@ def api_update_settings(request: SettingsUpdateRequest, current_user: str = Depe
                 cfg.GEMINI_API_KEY = ""
                 updated = True
                 
-        if request.spreadsheet_name is not None:
-            val = request.spreadsheet_name.strip()
-            yaml_data["sheets"]["spreadsheet_name"] = val
-            cfg.SPREADSHEET_NAME = val
-            updated = True
-            
         if request.drive_system_folder is not None:
             val = request.drive_system_folder.strip()
             yaml_data["drive"]["system_folder_name"] = val

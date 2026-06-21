@@ -149,11 +149,11 @@ def test_api_settings_get_and_post(auth_client):
     assert get_res.status_code == 200
     settings = get_res.json()
     assert "gemini_api_key" in settings
-    assert "spreadsheet_name" in settings
+    assert "drive_system_folder" in settings
+    assert "spreadsheet_name" not in settings  # حُذف بعد الانتقال لـ Supabase
     
     # حفظ الإعدادات الأصلية
     orig_api_key = cfg.GEMINI_API_KEY
-    orig_sheet_name = cfg.SPREADSHEET_NAME
     
     # تحديث الإعدادات
     new_spreadsheet = "جدول اختبار مؤقت"
@@ -170,18 +170,18 @@ def test_api_settings_get_and_post(auth_client):
             backup_content = f.read()
             
     try:
-        post_res = auth_client.post("/api/settings", json=update_payload)
+        post_res = auth_client.post("/api/settings", json={
+            "gemini_api_key": "AIzaSyTestKey1234"
+        })
         assert post_res.status_code == 200
         assert post_res.json()["status"] == "success"
         
         # التأكد من انعكاس التغيير في الذاكرة
-        assert cfg.SPREADSHEET_NAME == new_spreadsheet
         assert cfg.GEMINI_API_KEY == "AIzaSyTestKey1234"
         
         # التأكد من كتابتها في الملف
         with open(settings_file, "r", encoding="utf-8") as f:
             written_yaml = yaml.safe_load(f)
-            assert written_yaml["sheets"]["spreadsheet_name"] == new_spreadsheet
             assert written_yaml["ai"]["api_key"] == "AIzaSyTestKey1234"
             
     finally:
@@ -191,5 +191,4 @@ def test_api_settings_get_and_post(auth_client):
                 f.write(backup_content)
         elif settings_file.exists():
             settings_file.unlink()
-        cfg.SPREADSHEET_NAME = orig_sheet_name
         cfg.GEMINI_API_KEY = orig_api_key
