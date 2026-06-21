@@ -50,29 +50,29 @@ def adapt_supabase_to_legacy_format(submission: Dict[str, Any], tasks: List[Dict
     month_num = submission.get("month", 1)
 
     legacy_data = {
-        "timestamp":         str(submission.get("created_at", "")),
+        "timestamp":         str(submission.get("created_at") or ""),
         "target_month_num":  month_num,
         "target_month_name": MONTH_MAP.get(month_num, ""),
         "office_name":       office_name,
-        "submitter":         submission.get("submitter_name", ""),
-        "submitter_phone":   submission.get("submitter_phone", ""),
+        "submitter":         submission.get("submitter_name") or "",
+        "submitter_phone":   submission.get("submitter_phone") or "",
         "monthly_plan_link": monthly_plan_link,
-        "general_challenges":submission.get("general_challenges", ""),
-        "additional_notes":  submission.get("additional_notes", ""),
+        "general_challenges":submission.get("general_challenges") or "",
+        "additional_notes":  submission.get("additional_notes") or "",
         "tasks":             []
     }
 
     # 3. تحويل المهام لتطابق التسميات القديمة
     for t in tasks:
         legacy_data["tasks"].append({
-            "manager":       t.get("manager_name", ""),
-            "manager_phone": t.get("manager_phone", ""),
-            "name":          t.get("task_name", ""),
-            "description":   t.get("task_description", ""),
-            "type":          t.get("task_type", ""),
-            "mechanism":     t.get("execution_mechanism", ""),
-            "status":        t.get("task_status", ""),
-            "issues":        t.get("issues", ""),
+            "manager":       t.get("manager_name") or "",
+            "manager_phone": t.get("manager_phone") or "",
+            "name":          t.get("task_name") or "",
+            "description":   t.get("task_description") or "",
+            "type":          t.get("task_type") or "",
+            "mechanism":     t.get("execution_mechanism") or "",
+            "status":        t.get("task_status") or "",
+            "issues":        t.get("issues") or "",
             "file_link":     ""  # حقل احتياطي فارغ متوافق مع Sheets
         })
 

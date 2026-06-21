@@ -72,3 +72,53 @@ def test_adapt_supabase_to_legacy_format(mock_create_signed_url):
     assert adapted_task["status"] == "مكتملة"
     assert adapted_task["issues"] == ""
     assert adapted_task["file_link"] == ""  # حقل Sheets الاحتياطي الفارغ
+
+
+def test_adapt_supabase_to_legacy_format_with_null_fields():
+    """يتحقق من أن القيم الخالية (None/NULL) في الحقول الاختيارية القادمة من قاعدة البيانات يتم تحويلها تلقائياً إلى نصوص فارغة."""
+    submission = {
+        "id": 43,
+        "created_at": None,
+        "month": 7,
+        "year": 2026,
+        "submitter_name": "سامر صالح",
+        "submitter_phone": None,
+        "has_plan": False,
+        "plan_file_path": None,
+        "general_challenges": None,
+        "additional_notes": None,
+        "offices": {"name": "المكتب الاعلامي"}
+    }
+
+    tasks = [
+        {
+            "id": 11,
+            "submission_id": 43,
+            "manager_name": "أحمد علي",
+            "manager_phone": None,
+            "task_name": "مهمة تدقيق",
+            "task_description": None,
+            "task_type": "ضمن الخطة الشهرية",
+            "execution_mechanism": None,
+            "task_status": "قيد التنفيذ",
+            "issues": None,
+            "task_order": 0
+        }
+    ]
+
+    result = adapt_supabase_to_legacy_format(submission, tasks)
+
+    # التحقق من أن القيم None تحولت إلى نصوص فارغة ""
+    assert result["timestamp"] == ""
+    assert result["submitter_phone"] == ""
+    assert result["general_challenges"] == ""
+    assert result["additional_notes"] == ""
+    assert result["monthly_plan_link"] == ""
+
+    # المهام الفرعية
+    assert len(result["tasks"]) == 1
+    adapted_task = result["tasks"][0]
+    assert adapted_task["manager_phone"] == ""
+    assert adapted_task["description"] == ""
+    assert adapted_task["mechanism"] == ""
+    assert adapted_task["issues"] == ""
