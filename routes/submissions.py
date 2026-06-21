@@ -17,7 +17,7 @@ import traceback
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from database import get_supabase_client, create_signed_url
@@ -122,7 +122,7 @@ async def api_upload_plan(file: UploadFile = File(...)):
 
 # ─── POST /api/submit-report ────────────────────────────────────────────────
 @router.post("/submit-report", response_model=SubmitReportResponse)
-def api_submit_report(request: SubmitReportRequest):
+def api_submit_report(request: SubmitReportRequest, background_tasks: BackgroundTasks):
     """
     استقبال تقرير شهري جديد من الفورم العام (بدون auth).
 
@@ -202,11 +202,19 @@ def api_submit_report(request: SubmitReportRequest):
             tasks_result = db.table("tasks").insert(tasks_data).execute()
             _log.info(f"   ✅ {len(tasks_data)} tasks inserted for submission {submission_id}")
 
-        # ── 4. إرجاع الاستجابة الناجحة ─────────────────────────────────
+        # ── 4. تشغيل المعالجة بالخلفية تلقائياً ──
+        try:
+            from web_server import _background_pipeline_runner
+            background_tasks.add_task(_background_pipeline_runner, submission_id=submission_id)
+            _log.info(f"   🚀 Automatically queued background processing for submission {submission_id}")
+        except Exception as bg_err:
+            _log.error(f"⚠️ Failed to queue background processing for submission {submission_id}: {bg_err}")
+
+        # ── 5. إرجاع الاستجابة الناجحة ─────────────────────────────────
         return SubmitReportResponse(
             status="success",
             submission_id=submission_id,
-            message=f"تم تقديم التقرير بنجاح. رقم التقرير: {submission_id}"
+            message=f"تم تقديم التقرير بنجاح وتفعيل المعالجة بالخلفية. رقم التقرير: {submission_id}"
         )
 
     except HTTPException:

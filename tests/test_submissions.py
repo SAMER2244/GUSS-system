@@ -97,8 +97,9 @@ def test_upload_plan_too_large(client):
 
 
 # ─── 3. اختبار تقديم تقرير شهري ─────────────────────────────────────────────
+@patch("web_server._background_pipeline_runner")
 @patch("routes.submissions.get_supabase_client")
-def test_submit_report_success(mock_get_client, client):
+def test_submit_report_success(mock_get_client, mock_bg_runner, client):
     """التحقق من نجاح إرسال تقرير شهري جديد وحفظ المهام المرتبطة به."""
     mock_db = MagicMock()
     mock_get_client.return_value = mock_db
@@ -160,6 +161,58 @@ def test_submit_report_success(mock_get_client, client):
     assert data["status"] == "success"
     assert data["submission_id"] == 42
     assert "تم تقديم التقرير بنجاح" in data["message"]
+    # التحقق من تشغيل معالجة الخلفية
+    mock_bg_runner.assert_called_once_with(submission_id=42)
+
+
+@patch("web_server._background_pipeline_runner")
+@patch("routes.submissions.get_supabase_client")
+def test_submit_report_triggers_pipeline(mock_get_client, mock_bg_runner, client):
+    """التحقق من أن تقديم التقرير بنجاح يقوم بتشغيل معالجة الخلفية تلقائياً بـ submission_id الصحيح."""
+    mock_db = MagicMock()
+    mock_get_client.return_value = mock_db
+
+    mock_office_res = MagicMock()
+    mock_office_res.data = [{"id": 5}]
+
+    mock_sub_res = MagicMock()
+    mock_sub_res.data = [{"id": 99}]
+
+    def mock_table_routing(table_name):
+        mock_tbl = MagicMock()
+        if table_name == "offices":
+            mock_tbl.select.return_value.eq.return_value.execute.return_value = mock_office_res
+        elif table_name == "submissions":
+            mock_tbl.insert.return_value.execute.return_value = mock_sub_res
+        elif table_name == "tasks":
+            mock_tbl.insert.return_value.execute.return_value = MagicMock()
+        return mock_tbl
+
+    mock_db.table.side_effect = mock_table_routing
+
+    payload = {
+        "office_name": "المكتب الاعلامي",
+        "submitter_name": "سامر صالح",
+        "month": 7,
+        "year": 2026,
+        "has_plan": False,
+        "tasks": [
+            {
+                "manager_name": "سامر صالح",
+                "task_name": "مهمة 1",
+                "task_type": "ضمن الخطة الشهرية",
+                "task_status": "مكتملة"
+            }
+        ]
+    }
+
+    response = client.post("/api/submit-report", json=payload)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert response.json()["submission_id"] == 99
+    
+    # التحقق من استدعاء معالجة الخلفية بـ submission_id الصحيح (99)
+    mock_bg_runner.assert_called_once_with(submission_id=99)
 
 
 @patch("routes.submissions.get_supabase_client")
