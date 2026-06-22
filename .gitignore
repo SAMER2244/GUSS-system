@@ -25,3 +25,8 @@ reports/
 Thumbs.db
 .vscode/
 .idea/
+
+# Temporary & Duplicate Files
+/logo.png
+/debug_test.py
+
