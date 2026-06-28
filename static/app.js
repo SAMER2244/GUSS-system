@@ -101,12 +101,44 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // ─── Startup Loading Controller (Waking up Render backend) ───────────────
+    const startupOverlay = document.getElementById("startupLoaderOverlay");
+    const startupProgressFill = document.querySelector(".startup-progress-fill");
+    const startupStatusText = document.querySelector(".startup-status-text");
+
+    let startupProgress = 10;
+    let startupInterval = setInterval(() => {
+        if (startupProgress < 90) {
+            startupProgress += 1.5;
+            if (startupProgressFill) startupProgressFill.style.width = `${startupProgress}%`;
+            
+            if (startupProgress > 60) {
+                if (startupStatusText) startupStatusText.textContent = "جاري تهيئة خادم Render سحابياً...";
+            } else if (startupProgress > 30) {
+                if (startupStatusText) startupStatusText.textContent = "جاري تشغيل الحاوية البرمجية...";
+            }
+        }
+    }, 850);
+
+    function hideStartupLoader() {
+        if (startupInterval) {
+            clearInterval(startupInterval);
+            startupInterval = null;
+        }
+        if (startupProgressFill) startupProgressFill.style.width = "100%";
+        if (startupStatusText) startupStatusText.textContent = "تم الاتصال بنجاح!";
+        setTimeout(() => {
+            if (startupOverlay) startupOverlay.classList.add("hidden");
+        }, 500);
+    }
+
     // ─── Auth state on initial load ──────────────────────────────────────────
     checkAuthSession();
 
     async function checkAuthSession() {
         try {
             const res = await fetch("/api/user/me");
+            hideStartupLoader();
             if (res.status === 401) {
                 showLoginOverlay();
             } else if (res.ok) {
@@ -120,6 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } catch (err) {
             console.error("Auth check failed:", err);
+            hideStartupLoader();
             showLoginOverlay();
         }
     }
