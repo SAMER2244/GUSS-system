@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import WelcomeStep from './components/WelcomeStep';
 import BasicInfoStep from './components/BasicInfoStep';
 import TasksStep from './components/TasksStep';
@@ -45,11 +45,91 @@ export default function App() {
   const [submitError, setSubmitError] = useState('');
   const [submissionId, setSubmissionId] = useState(null);
 
+  // Auto-Save States
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoredDraft, setRestoredDraft] = useState(null);
+  const [isRestoredPlan, setIsRestoredPlan] = useState(false);
+
+  // 1. Check for saved draft on initial load
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('guss_form_draft');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.formData) {
+          setRestoredDraft(parsed);
+          setShowRestoreModal(true);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to read draft from localStorage:', err);
+    }
+  }, []);
+
+  // 2. Auto-Save debounced effect
+  useEffect(() => {
+    if (step === 5) return; // Do not auto-save on successful submission screen
+
+    const isInitial = step === 1 && 
+                      formData.office_name === '' && 
+                      formData.submitter_name === '' && 
+                      formData.submitter_phone === '';
+
+    const timer = setTimeout(() => {
+      try {
+        if (isInitial) {
+          localStorage.removeItem('guss_form_draft');
+        } else {
+          const { plan_file, ...serializableData } = formData;
+          const draft = {
+            step,
+            formData: serializableData
+          };
+          localStorage.setItem('guss_form_draft', JSON.stringify(draft));
+        }
+      } catch (err) {
+        console.warn('Failed to update draft in localStorage:', err);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData, step]);
+
+  const handleRestore = () => {
+    if (restoredDraft) {
+      setFormData(prev => ({
+        ...prev,
+        ...restoredDraft.formData,
+        plan_file: null // Files cannot be serialised, user must re-select
+      }));
+      setStep(restoredDraft.step || 1);
+      if (restoredDraft.formData.has_plan) {
+        setIsRestoredPlan(true);
+      }
+    }
+    setShowRestoreModal(false);
+    setRestoredDraft(null);
+  };
+
+  const handleDiscardRestore = () => {
+    try {
+      localStorage.removeItem('guss_form_draft');
+    } catch (err) {
+      console.warn('Failed to delete draft from localStorage:', err);
+    }
+    setShowRestoreModal(false);
+    setRestoredDraft(null);
+  };
+
   const updateFormData = (newData) => {
     setFormData(prev => ({
       ...prev,
       ...newData
     }));
+    // If user changes/removes the plan file, clear the restored warning
+    if ('plan_file' in newData) {
+      setIsRestoredPlan(false);
+    }
   };
 
   const handleNext = () => {
@@ -75,6 +155,12 @@ export default function App() {
     setSubmissionId(null);
     setSubmitError('');
     setStep(1);
+    setIsRestoredPlan(false);
+    try {
+      localStorage.removeItem('guss_form_draft');
+    } catch (err) {
+      console.warn('Failed to remove draft on reset:', err);
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -165,6 +251,12 @@ export default function App() {
       // Success
       setSubmissionId(submitData.submission_id);
       setStep(5); // Go to success screen
+      
+      try {
+        localStorage.removeItem('guss_form_draft');
+      } catch (err) {
+        console.warn('Failed to remove draft on success:', err);
+      }
 
     } catch (err) {
       console.error('Report submission error:', err);
@@ -220,6 +312,7 @@ export default function App() {
             updateFormData={updateFormData} 
             onNext={handleNext} 
             onPrev={handlePrev} 
+            isRestoredPlan={isRestoredPlan}
           />
         )}
 
@@ -267,6 +360,37 @@ export default function App() {
                 <p>يرجى الانتظار، يتم حالياً ربط خطة المكتب بالمهام المرفقة وحفظ التقرير بالكامل في قاعدة البيانات.</p>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Restore Draft Modal Overlay */}
+      {showRestoreModal && (
+        <div className="submit-overlay">
+          <div className="submit-spinner-card" style={{ maxWidth: '440px' }}>
+            <i className="fa-solid fa-file-invoice" style={{ fontSize: '3rem', color: 'var(--color-gold)' }}></i>
+            <h3 style={{ fontSize: '1.2rem', marginTop: '0.5rem' }}>تقرير غير مكتمل</h3>
+            <p style={{ fontSize: '0.95rem', lineHeight: '1.6', margin: '0.5rem 0 1rem', color: 'var(--text-secondary)' }}>
+              وجدنا تقريراً غير مكتمل من محاولة سابقة. هل تريد الاستمرار من حيث توقفت، أم البدء من جديد؟
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+              <button 
+                type="button" 
+                onClick={handleRestore} 
+                className="btn btn-primary" 
+                style={{ flex: 1, padding: '0.75rem 1rem' }}
+              >
+                استمرار
+              </button>
+              <button 
+                type="button" 
+                onClick={handleDiscardRestore} 
+                className="btn btn-secondary" 
+                style={{ flex: 1, padding: '0.75rem 1rem' }}
+              >
+                بدء جديد
+              </button>
+            </div>
           </div>
         </div>
       )}

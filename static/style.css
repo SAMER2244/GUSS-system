@@ -699,6 +699,10 @@ body.light-mode .sidebar-action-btn {
     transform: scale(1.05);
 }
 
+#mobileNavToggle {
+    display: none;
+}
+
 .logout-btn-sidebar:hover {
     color: #ff4d6d;
     border-color: rgba(230, 57, 70, 0.4);
@@ -1675,3 +1679,363 @@ body.light-mode .btn-table-action {
 .modal-body::-webkit-scrollbar-thumb:hover {
     background: var(--accent-color);
 }
+
+/* ─── Edit Submission Modal Style Classes ────────────────────────────────── */
+.edit-modal-card {
+    max-width: 800px;
+    width: 90%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.edit-modal-body {
+    overflow-y: auto;
+    flex: 1;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.modal-grid-row-4 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.modal-grid-row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.modal-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--card-border);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+}
+
+.modal-section-title {
+    color: var(--accent-color);
+    font-size: 14px;
+    margin: 0;
+}
+
+.modal-tasks-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.modal-error-msg {
+    margin-bottom: 16px;
+}
+
+.modal-footer-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    border-top: 1px solid var(--card-border);
+    padding-top: 16px;
+}
+
+.btn-modal-action {
+    width: auto;
+    padding: 10px 24px;
+}
+
+/* ─── Mobile Responsiveness Enhancements ─────────────────────────────────── */
+
+/* 1. Responsiveness for Edit Modal on Mobile */
+@media (max-width: 768px) {
+    .modal-grid-row-2 {
+        grid-template-columns: 1fr; /* Stack challenges & notes on mobile */
+    }
+    
+    .edit-modal-body {
+        padding: 16px;
+        gap: 16px;
+    }
+    
+    .modal-footer-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .btn-modal-action {
+        width: 100%;
+        text-align: center;
+    }
+    
+    .modal-card {
+        border-radius: 12px;
+    }
+}
+
+/* 2. Compact Sidebar & Navigation on Mobile */
+@media (max-width: 768px) {
+    .app-layout {
+        grid-template-columns: 1fr;
+        min-height: auto;
+    }
+    
+    .app-sidebar {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--sidebar-border);
+        border-left: none;
+        position: sticky;
+        top: 0;
+        z-index: 1000;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        background: rgba(14, 30, 23, 0.85); /* Sidebar bg transparency */
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    body.light-mode .app-sidebar {
+        background: rgba(250, 248, 245, 0.85);
+    }
+    
+    .sidebar-header {
+        margin-bottom: 0;
+        gap: 8px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .sidebar-logo-container {
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+        flex-shrink: 0;
+    }
+    
+    .sidebar-branding h3 {
+        font-size: 13px;
+        margin: 0;
+    }
+    
+    .sidebar-branding p {
+        display: none; /* Hide subtitle to save space */
+    }
+    
+    /* Mobile Menu Dropdown from Three Dots */
+    .sidebar-nav {
+        display: none; /* Hidden by default */
+        position: absolute;
+        top: calc(100% - 4px);
+        left: 16px;
+        background: rgba(18, 30, 24, 0.95);
+        border: 1px solid var(--sidebar-border);
+        border-radius: 12px;
+        padding: 8px;
+        flex-direction: column !important;
+        gap: 6px;
+        z-index: 1000;
+        width: 180px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+    
+    body.light-mode .sidebar-nav {
+        background: rgba(243, 237, 226, 0.98);
+        box-shadow: 0 10px 30px rgba(31, 74, 55, 0.15);
+    }
+    
+    .sidebar-nav.active {
+        display: flex !important;
+    }
+    
+    .nav-tab-btn {
+        width: 100% !important;
+        padding: 10px 14px;
+        font-size: 13px;
+        border-radius: 8px;
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    
+    .nav-tab-btn i {
+        font-size: 14px;
+        width: auto;
+    }
+    
+    .nav-tab-btn span {
+        display: inline;
+    }
+    
+    /* Hide user info badge on mobile and just show logout/menu actions */
+    .sidebar-footer {
+        padding-top: 0;
+        border-top: none;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .user-badge {
+        display: none; /* Hide admin details to save header space */
+    }
+    
+    .sidebar-action-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 12px;
+        border-radius: 6px;
+    }
+
+    #mobileNavToggle {
+        display: inline-flex;
+    }
+}
+
+/* 3. Submissions Table-to-Cards Transformation on Mobile */
+@media (max-width: 768px) {
+    .submissions-table-container {
+        border: none;
+        overflow-x: visible; /* Disable table horizontal scroll container */
+    }
+    
+    .submissions-table {
+        min-width: 100% !important;
+        display: block; /* Make table behave as block elements */
+    }
+    
+    .submissions-table thead {
+        display: none; /* Hide headers */
+    }
+    
+    .submissions-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        width: 100%;
+    }
+    
+    .submissions-table tr {
+        display: block; /* Make row behave as a standalone card */
+        background: var(--card-item-bg);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        position: relative;
+        transition: all 0.2s ease;
+    }
+    
+    .submissions-table tr:hover {
+        background: rgba(31, 74, 55, 0.03);
+        border-color: var(--accent-color);
+    }
+    
+    .submissions-table td {
+        display: flex; /* Format cells side-by-side */
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+        font-size: 13px;
+        text-align: left;
+    }
+    
+    body.light-mode .submissions-table td {
+        border-bottom-color: rgba(0, 0, 0, 0.05) !important;
+    }
+    
+    .submissions-table td:last-child {
+        border-bottom: none !important;
+        margin-top: 8px;
+        padding-top: 12px;
+    }
+    
+    /* Generate mobile titles on the right side */
+    .submissions-table td::before {
+        content: attr(data-label); /* Pull label dynamically */
+        font-weight: 700;
+        color: var(--text-muted);
+        text-align: right;
+        display: inline-block;
+        padding-left: 8px;
+    }
+    
+    .submissions-table td strong {
+        font-size: 14px;
+        color: var(--accent-color);
+    }
+    
+    .actions-cell {
+        justify-content: flex-end;
+        width: 100%;
+    }
+    
+    .btn-table-action {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+    }
+}
+
+/* 4. Live Progress Card Ordering & Re-layout on Mobile */
+@media (max-width: 1200px) {
+    .dashboard-grid {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .dashboard-main-col {
+        order: 2; /* Move submissions table below the progress status */
+    }
+    
+    .dashboard-side-col {
+        order: 1; /* Move progress card to the very top */
+        width: 100%;
+    }
+}
+
+/* ─── Mobile Actions Dropdown Visibility overrides ──────────────────────── */
+.mobile-only-btn {
+    display: none !important;
+}
+
+.mobile-menu-divider {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    #themeToggle, #btnLogout {
+        display: none !important;
+    }
+    
+    .mobile-only-btn {
+        display: flex !important;
+    }
+    
+    .mobile-menu-divider {
+        display: block !important;
+        height: 1px;
+        background: var(--sidebar-border);
+        margin: 8px 0;
+        width: 100%;
+        opacity: 0.5;
+    }
+}
+
+

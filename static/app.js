@@ -26,6 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const statusFilter = document.getElementById("statusFilter");
     const submissionsTableBody = document.getElementById("submissionsTableBody");
     const themeToggle = document.getElementById("themeToggle");
+    const mobileThemeToggle = document.getElementById("mobileThemeToggle");
+    const mobileBtnLogout = document.getElementById("mobileBtnLogout");
     
     // Edit Submission Modal
     const editSubmissionModal = document.getElementById("editSubmissionModal");
@@ -77,17 +79,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (savedTheme === "light") {
         document.body.classList.add("light-mode");
         themeToggle.querySelector("i").className = "fa-solid fa-sun";
+        if (mobileThemeToggle) mobileThemeToggle.querySelector("i").className = "fa-solid fa-sun";
     } else {
         document.body.classList.remove("light-mode");
         themeToggle.querySelector("i").className = "fa-solid fa-moon";
+        if (mobileThemeToggle) mobileThemeToggle.querySelector("i").className = "fa-solid fa-moon";
     }
 
     themeToggle.addEventListener("click", () => {
         document.body.classList.toggle("light-mode");
         const isLight = document.body.classList.contains("light-mode");
         themeToggle.querySelector("i").className = isLight ? "fa-solid fa-sun" : "fa-solid fa-moon";
+        if (mobileThemeToggle) mobileThemeToggle.querySelector("i").className = isLight ? "fa-solid fa-sun" : "fa-solid fa-moon";
         localStorage.setItem("theme", isLight ? "light" : "dark");
     });
+
+    if (mobileThemeToggle) {
+        mobileThemeToggle.addEventListener("click", (e) => {
+            e.stopPropagation();
+            themeToggle.click();
+        });
+    }
 
     // ─── Auth state on initial load ──────────────────────────────────────────
     checkAuthSession();
@@ -182,6 +194,41 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Mobile Navigation Dropdown Toggle
+    const mobileNavToggle = document.getElementById("mobileNavToggle");
+    const sidebarNav = document.querySelector(".sidebar-nav");
+    if (mobileNavToggle && sidebarNav) {
+        mobileNavToggle.addEventListener("click", (e) => {
+            e.stopPropagation();
+            sidebarNav.classList.toggle("active");
+        });
+        
+        // Close menu when clicking anywhere outside
+        document.addEventListener("click", (e) => {
+            if (!mobileNavToggle.contains(e.target) && !sidebarNav.contains(e.target)) {
+                sidebarNav.classList.remove("active");
+            }
+        });
+        
+        // Close menu when a navigation tab button is clicked (excluding mobileThemeToggle and mobileBtnLogout)
+        sidebarNav.querySelectorAll(".nav-tab-btn").forEach(btn => {
+            if (btn.id !== "mobileThemeToggle") {
+                btn.addEventListener("click", () => {
+                    sidebarNav.classList.remove("active");
+                });
+            }
+        });
+
+        // Trigger original logout button when mobile logout is clicked
+        if (mobileBtnLogout) {
+            mobileBtnLogout.addEventListener("click", (e) => {
+                e.stopPropagation();
+                sidebarNav.classList.remove("active");
+                btnLogout.click();
+            });
+        }
+    }
+
     // Forgot Password modal handlers
     btnForgotPassword.addEventListener("click", () => {
         forgotPasswordModal.classList.remove("hidden");
@@ -213,6 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     navTabBtns.forEach(btn => {
         btn.addEventListener("click", () => {
             const targetTab = btn.dataset.tab;
+            if (!targetTab) return; // Skip non-tab buttons (e.g. theme toggle and logout)
             
             navTabBtns.forEach(b => b.classList.remove("active"));
             tabPanes.forEach(p => p.classList.remove("active-pane"));
@@ -358,13 +406,13 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
             
             row.innerHTML = `
-                <td><strong>${sub.office_name || "—"}</strong></td>
-                <td>${sub.submitter_name || "—"}</td>
-                <td>${sub.month}/${sub.year}</td>
-                <td>${statusBadge}</td>
-                <td>${formatDate(sub.created_at)}</td>
-                <td style="text-align: center;">${driveLinkHtml}</td>
-                <td>${actionsHtml}</td>
+                <td data-label="اسم المكتب"><strong>${sub.office_name || "—"}</strong></td>
+                <td data-label="المسؤول">${sub.submitter_name || "—"}</td>
+                <td data-label="الشهر/السنة">${sub.month}/${sub.year}</td>
+                <td data-label="الحالة">${statusBadge}</td>
+                <td data-label="تاريخ الإرسال">${formatDate(sub.created_at)}</td>
+                <td data-label="التقرير (Drive)" style="text-align: center;">${driveLinkHtml}</td>
+                <td data-label="إجراءات">${actionsHtml}</td>
             `;
             
             submissionsTableBody.appendChild(row);

@@ -30,8 +30,8 @@ const MONTHS = [
   { val: 12, name: 'كانون الأول (12)' }
 ];
 
-export default function BasicInfoStep({ formData, updateFormData, onNext, onPrev }) {
-  const [offices, setOffices] = useState([]);
+export default function BasicInfoStep({ formData, updateFormData, onNext, onPrev, isRestoredPlan }) {
+  const [offices, setOffices] = useState(STATIC_OFFICES);
   const [loadingOffices, setLoadingOffices] = useState(true);
   const [errors, setErrors] = useState({});
   const fileInputRef = useRef(null);
@@ -142,7 +142,6 @@ export default function BasicInfoStep({ formData, updateFormData, onNext, onPrev
           value={formData.office_name}
           onChange={handleChange}
           className="form-control"
-          disabled={loadingOffices}
         >
           <option value="">-- اختر المكتب أو القسم --</option>
           {offices.map((office, idx) => (
@@ -291,6 +290,13 @@ export default function BasicInfoStep({ formData, updateFormData, onNext, onPrev
             accept="application/pdf"
             style={{ display: 'none' }}
           />
+
+          {isRestoredPlan && !formData.plan_file && (
+            <div className="alert alert-danger" style={{ padding: '0.75rem 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <i className="fa-solid fa-circle-exclamation alert-icon" style={{ fontSize: '1.2rem', marginTop: 0 }}></i>
+              <div style={{ fontWeight: 700 }}>يرجى إعادة رفع ملف الخطة الشهرية</div>
+            </div>
+          )}
 
           {!formData.plan_file ? (
             <div 
