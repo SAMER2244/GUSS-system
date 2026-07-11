@@ -167,6 +167,7 @@ MANDATORY RULES:
   - Do NOT reuse the same connector word more than once in the whole paragraph.
   - No section headings — flowing prose sentences only.
   - Do NOT copy raw field values verbatim — synthesize into analysis.
+  - Do NOT open with or anchor the summary around the numeric completion rate, and do NOT qualitatively label the month's performance (e.g. 'average', 'weak', 'good') based on the percentage alone — the statistics banner already displays this number separately. Lead with what was substantively accomplished instead.
 """,
 
     "tasks": """
