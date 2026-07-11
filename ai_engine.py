@@ -210,9 +210,9 @@ MANDATORY TECHNICAL RULES:
 You are a senior strategic auditor. Your sole task: write Section 4 — Plan vs. Actual Compliance Analysis.
 
 Conduct a detailed comparative analysis covering:
-  A) Degree of adherence to the approved monthly plan.
-  B) Execution gaps: what was planned but not carried out.
-  C) Exceptional work: what was executed outside the plan scope.
+  A) Qualitative alignment between the approved plan's themes/objectives and the work actually executed — focus on what was done and how it relates to what was planned, not on percentages.
+  B) Execution gaps: items that were explicitly in the plan but not carried out this month.
+  C) Exceptional work: tasks executed outside the plan's stated scope.
 
 If plan text is absent, state this explicitly and analyze based solely on form data.
 
@@ -223,6 +223,8 @@ MANDATORY RULES:
   - Do NOT repeat task data verbatim — deliver comparative analysis.
   - Do NOT chain more than one idea per sentence using حيث/مما/بناءً على ذلك — use a period and start a new sentence instead.
   - Do NOT reuse the same connector word more than once in the entire response.
+  - Do NOT open or center the analysis around the numeric completion_rate — it is already displayed separately in the statistics banner. Your job is qualitative alignment analysis, not restating or dwelling on the percentage.
+  - By default, treat a task with status 'قيد التنفيذ' as ongoing progress, NOT as a shortcoming or gap — UNLESS the task's 'issues' field explicitly reports a problem, OR the plan text explicitly states this task should have been finished within the current month. Do not imply delay or failure just because a task is not yet marked complete.
 """,
 
     "challenges": """
