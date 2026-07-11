@@ -4,7 +4,7 @@ ai:
   fallback_wait_seconds: 30
   max_tokens:
     default: 6144
-    tasks: 8192
+    tasks: 12000
   temperature: 0.3
 auth:
   admin_password: sha256$94e00b8a20379e9e$b1b848d2c11cd029b14a404021f278553e5b95ca7b6182de1b796e4410c5ddac

@@ -170,7 +170,7 @@ MANDATORY RULES:
 """,
 
     "tasks": """
-You are a senior management consultant. Your sole task: produce a JSON array analyzing each executed task.
+You are a professional Arabic editor. Your sole task: rewrite each task's raw submitted data into formal, linguistically precise Modern Standard Arabic — faithful documentation, NOT strategic analysis or interpretation.
 
 Output exactly one JSON block. No text before or after it:
 ```json
@@ -178,25 +178,26 @@ Output exactly one JSON block. No text before or after it:
   {
     "task_id": "task number (1, 2, 3...)",
     "original_name": "task name exactly as it appears in the data",
-    "ai_insight": "2-3 short sentences (periods allowed and encouraged). Do not fuse everything into one run-on clause chain."
+    "ai_insight": "Faithful rewrite of the raw task data in formal Arabic. Length is driven by how much the raw data actually contains — not a fixed sentence count."
   }
 ]
 ```
 
-Quality criteria for each ai_insight:
-  1. 2-3 short sentences (periods allowed and encouraged). Do not fuse everything into one run-on clause chain.
-  2. Sentence 1: state the task objective and execution method.
-  3. Sentence 2: describe the outcome or operational impact.
-  4. Sentence 3 (optional): address constraints or issues if any exist in the data.
-  5. Vary sentence openings: avoid starting consecutive insights with the same verb.
-  6. Use management consulting vocabulary: operational efficiency, institutional readiness, structural capacity.
-  7. No verbatim copying: transform raw field data into insight.
+Content rules (apply strictly to every task):
+  1. Do NOT add analysis, interpretation, strategic framing, or conclusions that were not explicitly stated in the raw data.
+  2. Do NOT use abstract management/consulting vocabulary (e.g. 'institutional readiness', 'structural capacity', 'operational efficiency') unless those exact concepts were stated in the raw data.
+  3. Every concrete detail in the raw data (numbers, tool names, committee names, document names, deliverables) MUST appear explicitly in the rewritten text — do not compress distinct facts into a vague collective phrase.
+  4. Length is NOT fixed — driven entirely by how much the raw data actually contains. A task with rich data gets a fuller rewrite; a task with minimal data gets a short one.
+  5. Do NOT chain more than one idea per sentence using حيث/مما/بناءً على ذلك — use a period and start a new sentence instead.
+  6. Do NOT reuse the same sentence-opening structure across consecutive tasks.
 
-Example of the required quality:
-  "نفّذ المكتب ورشة تدريبية حضورية حول حقوق الطلاب في قاعة المؤتمرات. أسهمت الورشة في رفع الوعي الحقوقي لدى المشاركين وتعزيز منظومة الدعم المؤسسي. أثّر التأخر في توفير المعدات التقنية على الجداول الزمنية المقررة."
+Few-shot example (before → after):
+  RAW DATA: name='إنتاج مواد إعلامية', description='تصميم 3 فيديوهات ترويجية باستخدام Canva لصالح الملتقى الطلابي', status='مكتمل', issues='تأخر في الحصول على صور الفعاليات من المسؤولين'
+  CORRECT ai_insight: "أنجز المكتب تصميم 3 فيديوهات ترويجية باستخدام برنامج Canva، وذلك دعماً للملتقى الطلابي. اكتملت المهمة. تأخّر الحصول على صور الفعاليات من المسؤولين المعنيين."
+  WRONG ai_insight: "عزّزت هذه المبادرة المنظومة الإعلامية للمكتب وأسهمت في رفع الحضور المؤسسي للملتقى الطلابي." ← (تحليل مُضاف لم يُذكر في البيانات الخام)
 
 MANDATORY TECHNICAL RULES:
-  - IMPORTANT: You MUST generate the final analysis/response in ARABIC only. Use a professional, executive tone.
+  - IMPORTANT: You MUST generate the final output in ARABIC only. Use formal Modern Standard Arabic (فصحى) with no colloquialisms.
   - No English in the output.
   - No fields other than task_id, original_name, ai_insight.
   - Cover every task in the data without exception.
