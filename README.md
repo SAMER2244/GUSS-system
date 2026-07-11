@@ -22,57 +22,49 @@
 
 Each month, every executive office within the union is required to submit a structured activity report. Before this system existed, this was a manual process — collecting Word documents, chasing follow-ups, and writing summaries by hand.
 
-**This system changes that entirely.** Office representatives fill in a guided multi-step web form. The moment they submit, the system automatically:
-
-1. Stores the structured data in a relational database.
-2. Downloads and parses the office's monthly plan PDF from secure cloud storage.
-3. Fires **4 parallel Gemini AI threads** simultaneously to produce a 5-section strategic audit report.
-4. Assembles a fully-formatted, RTL Arabic `.docx` report (+ PDF mirror).
-5. Uploads the final report to the union's Google Drive under the correct hierarchical folder structure.
-
-The entire process — from form submission to a ready-to-read Word report on Drive — is fully automated.
-
----
-
-## 👨‍💻 Who Is This For?
-
-This README targets **developers and technical contributors** who want to:
-- Self-host the system for their own organization.
-- Understand the system architecture for contribution or extension.
-- Adapt the pipeline for a similar institutional use-case.
-
-> **Not a developer?** If you're an office representative looking to submit a report, simply visit the hosted web form and follow the on-screen steps — no technical knowledge required.
+**This system changes that entirely by offering two interfaces:**
+1. **Public Form Wizard**: Office representatives fill in a guided multi-step web form (React 19). The moment they submit, the backend stores the structured data, downloads and parses the office's monthly plan PDF from secure cloud storage, runs a parallel AI audit, compiles a fully-formatted RTL Arabic `.docx` report, and uploads it to Google Drive.
+2. **Admin Dashboard**: Evaluators log in using secure credentials to search/filter submissions, edit report details & task lists, manually re-run processing, update settings, and download locally archived report documents.
 
 ---
 
 ## 🏗️ System Architecture
 
+The project supports both a **Decoupled Architecture** (for static CDN frontends like Netlify) and a **Monolithic Architecture** (where FastAPI serves all static and compiled frontend assets directly).
+
 ```
-                         ┌─────────────────────────┐
-                         │   React 19 Frontend       │
-                         │   (Multi-Step Form Wizard)│
-                         └────────────┬────────────┘
-                                      │ POST /api/submit-report
-                                      │ POST /api/upload-plan (PDF)
-                         ┌────────────▼────────────┐
-                         │   FastAPI Backend         │
-                         │   (web_server.py)         │
-                         │   JWT Auth + CORS         │
-                         └────┬──────────┬──────────┘
-                              │          │
-              ┌───────────────▼──┐    ┌──▼────────────────────┐
-              │  Supabase         │    │  Background Pipeline    │
-              │  PostgreSQL       │    │  (per submission)       │
-              │  ┌─────────────┐ │    │                         │
-              │  │  offices    │ │    │  1. Fetch from DB        │
-              │  │  submissions│ │    │  2. Download Plan PDF    │
-              │  │  tasks      │ │    │  3. Parse text           │
-              │  └─────────────┘ │    │  4. Run AI Orchestrator ─┼──► Gemini API
-              │  Storage Bucket  │    │  5. Build .docx          │    (4 Threads)
-              │  (monthly-plans) │    │  6. Convert to PDF       │
-              └──────────────────┘    │  7. Upload to Drive      │
-                                      │  8. Update DB status     │
-                                      └─────────────────────────┘
+                                 OPTION A: Decoupled Deploy
+                              ┌──────────────────────────────┐
+                              │  Netlify Hosted React Client  │
+                              │    (Multi-Step Form Wizard)  │
+                              └──────────────┬───────────────┘
+                                             │ POST /api/submit-report (CORS)
+                                             │ POST /api/upload-plan
+                                             ▼
+                              ┌──────────────────────────────┐
+                              │    FastAPI Web Backend       │
+                              │       (web_server.py)        │
+                              └──────┬───────────────┬───────┘
+                                     │               │
+                                     │               │ OPTION B: Monolithic Self-Hosted Deploy
+                                     │               │ (FastAPI serves built-in frontends)
+                                     │               ├─────────────────────────────────────────┐
+                                     │               │ GET /         -> static/index.html      │
+                                     │               │ GET /static/* -> static/*               │
+                                     │               │ GET /form/*   -> static/form/index.html │
+                                     │               └─────────────────────────────────────────┘
+                                     │
+                     ┌───────────────▼──┐    ┌──────────────────────────────────┐
+                     │  Supabase         │    │  Background Execution Pipeline   │
+                     │  PostgreSQL       │    │  (Runs asynchronously per submit)│
+                     │  ┌─────────────┐ │    │                                  │
+                     │  │  offices    │ │    │  1. Fetch submission from DB     │
+                     │  │  submissions│ │    │  2. Download plan PDF           │
+                     │  │  tasks      │ │    │  3. Extract text from PDF        │
+                     │  └─────────────┘ │    │  4. Run AI Parallel Orchestrator ┼──► Gemini API
+                     │  Storage Bucket  │    │  5. Build premium RTL .docx doc  │    (4 Threads)
+                     │  (monthly-plans) │    │  6. Upload report to Google Drive│
+                     └──────────────────┘    └──────────────────────────────────┘
 ```
 
 ---
@@ -92,20 +84,19 @@ This README targets **developers and technical contributors** who want to:
 | Environment Config | `python-dotenv` + `PyYAML` (`settings.yaml`) |
 
 ### Frontend
-| Component | Technology |
-|-----------|-----------|
-| Framework | React 19 + Vite 8 |
-| State Management | React `useState` (local) |
-| Styling | Vanilla CSS with dark/light theme toggle |
-| Deployment | Netlify (via `netlify.toml`) |
+| Component | Technology | Description |
+|-----------|-----------|-------------|
+| **Form Wizard (React)** | React 19 + Vite 8 | Guided wizard with step validation, dark/light themes, and file upload. Deployed via Netlify (`netlify.toml`) or built statically. |
+| **Admin Dashboard** | Vanilla HTML5 / CSS3 / JS | Embedded dashboard for system management. Served directly by FastAPI on `/`. |
+| **Compiled Client Wizard** | Static Assets | Compiled production React wizard served by FastAPI on `/static/form/` for all-in-one deploys. |
 
 ### Cloud Infrastructure
 | Service | Purpose |
 |---------|---------|
 | Supabase (PostgreSQL) | Primary relational database |
-| Supabase Storage | Private bucket for monthly plan PDFs |
+| Supabase Storage | Private bucket (`monthly-plans`) for monthly plan PDFs |
 | Google Drive | Final report archive (hierarchical folders) |
-| Netlify | Frontend static hosting |
+| Netlify | Frontend static hosting (Decoupled option) |
 
 ---
 
@@ -205,45 +196,88 @@ answers  -- Reserved EAV table for future extensibility (currently empty)
 
 ```
 GUSS/
-├── frontend/                   # React 19 + Vite form wizard
+├── frontend/                   # React 19 + Vite Form Wizard (Decoupled Client)
 │   ├── src/
-│   │   ├── App.jsx             # Main app with step routing & submission logic
-│   │   ├── components/
-│   │   │   ├── WelcomeStep.jsx
-│   │   │   ├── BasicInfoStep.jsx  # Office selector, month/year, PDF upload
-│   │   │   ├── TasksStep.jsx
-│   │   │   ├── ClosingStep.jsx
-│   │   │   └── SuccessScreen.jsx
-│   │   └── index.css
-│   └── vite.config.js
+│   │   ├── App.css             # Main styling overrides for the app wrapper
+│   │   ├── App.jsx             # Main app with step wizard, API routing, and state
+│   │   ├── main.jsx            # React mounting and entry point
+│   │   ├── index.css           # Global custom CSS (glassmorphism, dark/light themes)
+│   │   ├── assets/             # Assets used in the React frontend
+│   │   └── components/         # Reusable step components:
+│   │       ├── WelcomeStep.jsx       # Welcome landing screen
+│   │       ├── BasicInfoStep.jsx     # Office selector, period, and PDF plan upload
+│   │       ├── TasksStep.jsx         # Task creation wizard
+│   │       ├── TaskCard.jsx          # Interactive card for individual task configuration
+│   │       ├── ClosingStep.jsx       # Challenges and notes input
+│   │       ├── SuccessScreen.jsx     # Submission success dashboard
+│   │       ├── ProgressIndicator.jsx # Multi-step progress bar
+│   │       └── ThemeToggle.jsx       # Dark/Light theme toggler component
+│   │
+│   ├── .env.example            # Template for frontend environment variables
+│   ├── .gitignore              # Ignored folders (node_modules, dist)
+│   ├── eslint.config.js        # ESLint linter configuration
+│   ├── index.html              # HTML shell for Vite bundler
+│   ├── package.json            # Node.js project manifest & script commands
+│   ├── package-lock.json       # Strict package lock version file
+│   └── vite.config.js          # Vite custom bundler settings
 │
-├── routes/
-│   ├── submissions.py          # Public API: submit report, upload PDF, list offices
-│   └── dashboard.py           # Admin-only API: CRUD for submissions
+├── static/                     # Embedded Frontend Assets (Served directly by web_server.py)
+│   ├── index.html              # HTML UI for the built-in Admin Dashboard (login, CRUD, actions)
+│   ├── style.css               # Styling rules for the embedded dashboard
+│   ├── app.js                  # Client logic for dashboard (handles JWT cookies, API CRUD, real-time pipeline status)
+│   └── form/                   # Built React Form Wizard (compiled for static serving)
+│       ├── assets/             # Compiled production JS/CSS assets
+│       ├── index.html          # HTML entry point for the compiled wizard
+│       ├── favicon.svg         # Tab icon
+│       └── icons.svg           # Sprite sheet for dashboard/wizard icons
 │
-├── migrations/
-│   ├── 001_create_tables.sql   # Full schema with RLS policies
-│   ├── 002_seed_offices.sql    # Initial 12 offices
-│   ├── 003_storage_bucket.sql  # Supabase Storage bucket (monthly-plans)
-│   └── 004_add_drive_link.sql  # Adds drive_report_link column
+├── routes/                     # Backend API Router Modules
+│   ├── __init__.py             # Python package initialization
+│   ├── submissions.py          # Public API routes (submit report, upload PDF plan, list offices)
+│   └── dashboard.py            # Protected Admin API routes (CRUD, manual processing trigger)
 │
-├── ai_engine.py                # ParallelOrchestrator + Gemini failover logic
-├── report_generator.py         # .docx builder (RTL Arabic, 5-section layout)
-├── pdf_handler.py              # PDF download (Drive or HTTP) + pdfplumber extraction
-├── drive_uploader.py           # Google Drive OAuth2 uploader + folder hierarchy
-├── supabase_adapter.py         # Converts Supabase rows to legacy pipeline format
-├── data_parser.py              # Task statistics + OfficeData type alias
-├── web_server.py               # FastAPI app, JWT auth, background pipeline runner
-├── database.py                 # Supabase singleton client
-├── models.py                   # Pydantic request/response models
-├── config.py                   # Central config (loaded from .env + settings.yaml)
-├── logger.py                   # Rotating file + console logger
-├── exceptions.py               # Custom exception hierarchy
-├── retry.py                    # Generic retry decorator
-├── settings.yaml               # Runtime-configurable settings (AI models, colors, etc.)
-├── environment.yml             # Conda environment definition
-├── requirements.txt            # pip dependencies
-└── .env.example                # Template for required environment variables
+├── migrations/                 # PostgreSQL Database Migrations (Supabase)
+│   ├── 001_create_tables.sql   # Creates offices, submissions, tasks, and answers tables + RLS policies
+│   ├── 002_seed_offices.sql    # Seeds the initial 12 operational executive offices of GUSS
+│   ├── 003_storage_bucket.sql  # Sets up the "monthly-plans" storage bucket with public/anon policies
+│   └── 004_add_drive_link.sql  # Appends the drive_report_link column to submissions for tracking uploads
+│
+├── tests/                      # Automated Pytest Suite
+│   ├── conftest.py             # Global test fixtures, environment setups, and security mocks
+│   ├── test_adapter.py         # Unit tests for the legacy pipeline adapter functions
+│   ├── test_dashboard.py       # Integration tests for protected admin routes & CRUD endpoints
+│   ├── test_data_parser.py     # Unit tests for parsing database tasks into statistics
+│   ├── test_pdf_handler.py     # Integration tests for PDF download (Supabase Storage) & text extraction
+│   ├── test_report_generator.py# Unit tests for assembling Arabic A4 Word (.docx) reports
+│   ├── test_submissions.py     # Integration tests for public submission routes & validation constraints
+│   └── test_web_server.py      # Integration tests for server authentication & live pipeline endpoints
+│
+├── assets/                     # Shared static assets (Union logos, office banners)
+│   ├── union_logo.png          # GUSS emblem logo
+│   └── office_banner.jpg       # Assessment banner used in the Admin UI
+│
+├── ai_engine.py                # ParallelOrchestrator, failover wrapper & Gemini fallback thread management
+├── report_generator.py         # Builds premium RTL Arabic docx report, matching AI comments to database tasks
+├── pdf_handler.py              # Downloads files from Supabase Storage / Drive & extracts text with pdfplumber
+├── drive_uploader.py           # Authenticates via OAuth2 Desktop client to upload reports to nested Drive folders
+├── supabase_adapter.py         # Formats raw Supabase table rows into dict formats consumed by the generator
+├── data_parser.py              # Calculates execution rates and classifies tasks (within/outside plan)
+├── web_server.py               # Main FastAPI server initialization, JWT authentication, & background worker threads
+├── database.py                 # Singleton manager for Supabase Client and storage configurations
+├── models.py                   # PyRequest/Response schemas (Pydantic models)
+├── config.py                   # Loads settings from environment variables & settings.yaml, converts custom colors
+├── logger.py                   # Dual file/console logging configuration
+├── exceptions.py               # Domain exception class hierarchy
+├── retry.py                    # Decorator pattern for API retry resilience
+├── settings.yaml               # Application config (colors, AI fallback models, retry counts, database aliases)
+├── environment.yml             # Conda environment definition for setting up the package suite
+├── requirements.txt            # Python pip dependencies
+├── debug_test.py               # Dry-run diagnostic sandbox (dry-run Gemini calls & task matches)
+├── logo.png                    # App branding asset
+├── credentials.json            # [IGNORED] Google Service Account key for storage access
+├── oauth_client.json           # [IGNORED] Google OAuth 2.0 client credentials for Drive uploads
+├── token.json                  # [IGNORED] Google OAuth 2.0 user tokens persisted after first login
+└── .env.example                # Sample environment configuration template for backend variables
 ```
 
 ---
@@ -272,13 +306,13 @@ cd GUSS-system
 
 ### Step 2 — Set Up the Python Environment
 
+Using Conda:
 ```bash
 conda env create -f environment.yml
 conda activate ai_env
 ```
 
 Or with pip:
-
 ```bash
 python -m venv .venv
 source .venv/bin/activate       # On Windows: .venv\Scripts\activate
@@ -356,7 +390,7 @@ Run all migration files in order inside the **Supabase SQL Editor**:
 
 ---
 
-### Step 6 — Start the Backend
+### Step 6 — Start the Backend (and Embedded Admin Dashboard)
 
 ```bash
 python web_server.py
@@ -364,11 +398,13 @@ python web_server.py
 
 The API will be live at: `http://localhost:8000`
 
-Interactive API docs (Swagger UI) available at: `http://localhost:8000/docs`
+- **Admin Dashboard UI**: Go to `http://localhost:8000/` in your browser.
+- **Compiled Form Wizard**: Go to `http://localhost:8000/static/form/index.html`.
+- **Interactive Swagger Docs**: Go to `http://localhost:8000/docs`.
 
 ---
 
-### Step 7 — Start the Frontend
+### Step 7 — Start the Development Frontend (Optional — Decoupled Setup)
 
 ```bash
 cd frontend
@@ -383,6 +419,44 @@ Create a `frontend/.env` (or `frontend/.env.local`) with:
 ```dotenv
 VITE_API_BASE_URL=http://localhost:8000
 ```
+
+---
+
+## 🧪 Running Tests
+
+The test suite covers all system layers — API routes, data parsing, PDF handling, report generation, and the Supabase adapter.
+
+```bash
+# Activate the environment first
+conda activate ai_env
+
+# Run all tests
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run a specific module
+pytest tests/test_submissions.py -v
+```
+
+**Current status:** ✅ 61 tests passing in ~4.0s
+
+---
+
+## 🛠️ Local Sandbox & AI Dry-Run
+
+For diagnostic dry-runs without database or Drive connections, developers can use the sandbox utility script:
+
+```bash
+python debug_test.py
+```
+
+This script:
+1. Builds a mock office dataset.
+2. Formats and prints the prompt payload sent to Gemini.
+3. Performs a live test call to the Gemini API using your `GEMINI_API_KEY`.
+4. Demonstrates task matching performance (exact, diacritics removal, contains, etc.) and lists LLM compliance.
 
 ---
 
@@ -450,7 +524,7 @@ The repository includes [`netlify.toml`](netlify.toml) — simply connect the re
 
 Set the `VITE_API_BASE_URL` environment variable in Netlify to point to your backend URL.
 
-### Backend
+### Backend & Monolithic Deploy
 
 The FastAPI backend can be deployed on any Linux server or container:
 
@@ -463,44 +537,8 @@ Remember to set the following environment variables in production:
 - `GEMINI_API_KEY`
 - `SUPABASE_URL`
 - `SUPABASE_ANON_KEY`
-- `ALLOWED_ORIGIN` (your Netlify URL)
+- `ALLOWED_ORIGIN` (your Netlify URL or static host URL)
 - `GUSS_COOKIE_SECURE=true` (enables `Secure` flag on the JWT cookie)
-
----
-
-## 🧪 Running Tests
-
-The test suite covers all system layers — API routes, data parsing, PDF handling, report generation, and the Supabase adapter.
-
-```bash
-# Activate the environment first
-conda activate ai_env
-
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run a specific module
-pytest tests/test_submissions.py -v
-```
-
-**Current status:** ✅ 61 tests passing in ~2.8s
-
----
-
-## 🔭 Planned Extensions
-
-The following extension slots are documented in [`skill.md`](skill.md) and [`operational_map_v3.md`](operational_map_v3.md):
-
-| Slot | Description |
-|------|-------------|
-| `ALTERNATIVE_PLAN_FORMATS` | Support image-based or Word document monthly plans |
-| `REPORT_DISTRIBUTION` | Automated email / Slack delivery after report generation |
-| `BATCH_RETRY` | Persistent queue for failed Drive uploads |
-| `WEBHOOK_NOTIFY` | POST to an external endpoint when a report is finalized |
-| `ADDITIONAL_GEMINI_MODEL` | Add more fallback model tiers for finer-grained failover |
 
 ---
 
@@ -508,9 +546,8 @@ The following extension slots are documented in [`skill.md`](skill.md) and [`ope
 
 1. Fork the repository.
 2. Create a feature branch: `git checkout -b feature/your-feature`.
-3. Before modifying core modules, read the **Surgeon Rule** in [`skill.md`](skill.md) — it defines the development contract and invariants that must be preserved.
-4. Run the full test suite: `pytest`.
-5. Open a Pull Request with a clear description of what changed and why.
+3. Run the full test suite: `pytest`.
+4. Open a Pull Request with a clear description of what changed and why.
 
 ---
 

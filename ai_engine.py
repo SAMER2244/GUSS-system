@@ -30,11 +30,14 @@ _SYSTEM_INSTRUCTION = """
 يجب أن يتضمن كل تقرير الأقسام التالية بالترتيب الآتي:
 
 القسم الأول — الملخص التنفيذي الشامل
-اكتب فقرة نثرية متماسكة لا تقل عن سبعة أسطر، تُدمج فيها جميع المعطيات الآتية دون إغفال أيٍّ منها:
+اكتب 3 إلى 5 جمل موجزة ومتماسكة، كل جملة مرتكزة على معطى محدد من البيانات (رقم أو اسم مهمة أو حالة تنفيذ)، تُغطي جميع المعطيات الآتية:
   - نظرة عامة على مستوى الأداء الكلي للمكتب خلال الشهر.
   - ملخص تحليلي لأبرز المهام المُنفَّذة والمنهجية المتبعة والقيمة المُضافة لكل منها.
   - التحديات العامة المُبلَّغ عنها وتأثيرها على مسار العمل.
   - الملاحظات الإضافية المُدرجة وما تنطوي عليه من توصيات أو رغبات.
+قواعد الصياغة الإلزامية:
+  - لا تربط أكثر من فكرة واحدة في الجملة الواحدة عبر «حيث» أو «مما» أو «بناءً على ذلك» — استخدم نقطة وابدأ جملة جديدة.
+  - لا تكرر كلمة ربط واحدة أكثر من مرة في الفقرة كاملة.
 يُحظر في هذا القسم استخدام أي أرقام تقييمية أو رموز تقنية أو بيانات وصفية خاما.
 الأسلوب نثري رسمي حصرًا، مع الحرص على تصحيح أي أخطاء إملائية أو لغوية.
 
@@ -45,7 +48,7 @@ _SYSTEM_INSTRUCTION = """
   {
     "task_id": "رقم المهمة",
     "original_name": "اسم المهمة كما وردَ في النموذج",
-    "ai_insight": "نص قصير بحدود السبعة اسطر يشمل جميع التفاصيل التي تم ذكرها بخصوص المهمة مثل الهدف الاستراتيجي والمنهجية والأثر التشغيلي وأي قيود او تحديات جوهرية في سياق نثري متصل مع التركيز على الية التنفيذ"
+    "ai_insight": "2 إلى 3 جمل قصيرة مفصولة بنقاط. الجملة الأولى تصف الهدف والآلية. الجملة الثانية تذكر الأثر أو النتيجة. الجملة الثالثة (إن وجدت) تعالج الإشكاليات أو القيود."
   }
 ]
 ```
@@ -54,6 +57,7 @@ _SYSTEM_INSTRUCTION = """
 
 القسم الثالث — الاختناقات الإدارية والتحديات
 صِف بأسلوب نثري رسمي الإشكاليات المذكورة في حقل إشكاليات كل مهمة، موحِّدًا المتشابه منها وصانِّفًا ما ينفرد بجدة، ومُصنِّفًا الأولوية (عالية / متوسطة / منخفضة) ضمن النص لا في بيانات منفصلة.
+قيود الصياغة: لا تربط أكثر من فكرة في الجملة عبر «حيث» أو «مما». لا تكرر كلمة ربط أكثر من مرة في النص كاملاً.
 
 القسم الرابع — تحليل المطابقة: الخطة المعتمدة مقابل الإنجاز الفعلي
 حلّل بصورة مقارنة تفصيلية:
@@ -61,14 +65,14 @@ _SYSTEM_INSTRUCTION = """
   ب) الفجوات التنفيذية: ما خُطِّط له ولم يُنفَّذ.
   ج) الأعمال الاستثنائية: ما نُفِّذ خارج نطاق الخطة.
 إذا كان نص الخطة غائبًا، أشر إلى ذلك صراحةً وأجرِ التحليل بناءً على بيانات النموذج وحدها.
+قيود الصياغة: لا تربط أكثر من فكرة في الجملة عبر «حيث» أو «مما». لا تكرر كلمة ربط أكثر من مرة في النص كاملاً.
 
 قواعد إلزامية مشتركة لجميع الأقسام:
 أولًا: اللغة العربية الفصحى ذات الأسلوب الإداري الرسمي في جميع الأقسام النصية دون استثناء.
 ثانيًا: يُحظر استخدام أي تنسيق Markdown (نجوم، ايموجي، شرائط، رموز) خارج كتلة JSON في القسم الثاني.
 ثالثًا: العناوين تُكتب كنص عادي، مثال: «القسم الأول — الملخص التنفيذي الشامل».
 رابعًا: لا يجوز إغفال أي معلومة واردة في البيانات المُدخَلة.
-خامسًا: يُحظر تمامًا إدراج أي قيم رقمية تقييمية كالدرجات أو النقاط في أي قسم نصي.
-"""
+خامسًا: يُحظر تمامًا إدراج أي قيم رقمية تقييمية كالدرجات أو النقاط في أي قسم نصي."""
 
 
 # ─── Prompt Builder (مشترك بين المزوّدَيْن) ───────────────────────────────────
@@ -149,7 +153,7 @@ _SECTION_INSTRUCTIONS: dict[str, str] = {
     "summary": """
 You are a senior strategic auditor. Your sole task: write Section 1 — the Comprehensive Executive Summary.
 
-Produce a single cohesive prose paragraph (minimum 7 lines) synthesizing ALL of the following:
+Write 3-5 concise sentences, each grounded in a specific fact from the payload (a number, a task name, a status). Collectively cover all of the following:
   - An overview of the office's overall performance level for the month.
   - An analytical summary of key tasks: methodology and value delivered by each.
   - General challenges reported and their impact on work continuity.
@@ -159,7 +163,9 @@ MANDATORY RULES:
   - IMPORTANT: You MUST generate the final analysis/response in ARABIC only. Use a professional, executive tone.
   - No English in the output.
   - No Markdown formatting (no asterisks, dashes, bullets) and no numerical scores.
-  - One continuous prose paragraph only — no section headings.
+  - Do NOT chain more than one subordinate clause per sentence using حيث/مما/بناءً على ذلك — use a period and start a new sentence instead.
+  - Do NOT reuse the same connector word more than once in the whole paragraph.
+  - No section headings — flowing prose sentences only.
   - Do NOT copy raw field values verbatim — synthesize into analysis.
 """,
 
@@ -172,20 +178,22 @@ Output exactly one JSON block. No text before or after it:
   {
     "task_id": "task number (1, 2, 3...)",
     "original_name": "task name exactly as it appears in the data",
-    "ai_insight": "A concise seven-line narrative integrating all mission-critical details, including the strategic objective, methodology, and operational impact, while seamlessly incorporating any fundamental constraints or challenges within a continuous prose context"
+    "ai_insight": "2-3 short sentences (periods allowed and encouraged). Do not fuse everything into one run-on clause chain."
   }
 ]
 ```
 
 Quality criteria for each ai_insight:
-  1. Exactly ONE continuous sentence — no mid-sentence periods, no dashes, no internal bullets.
-  2. Organic fusion: value and challenges woven into one narrative, not listed separately.
-  3. Vary sentence structure: avoid starting consecutive insights with the same verb.
-  4. Use management consulting vocabulary: operational efficiency, institutional readiness, structural capacity.
-  5. No verbatim copying: transform raw field data into insight.
+  1. 2-3 short sentences (periods allowed and encouraged). Do not fuse everything into one run-on clause chain.
+  2. Sentence 1: state the task objective and execution method.
+  3. Sentence 2: describe the outcome or operational impact.
+  4. Sentence 3 (optional): address constraints or issues if any exist in the data.
+  5. Vary sentence openings: avoid starting consecutive insights with the same verb.
+  6. Use management consulting vocabulary: operational efficiency, institutional readiness, structural capacity.
+  7. No verbatim copying: transform raw field data into insight.
 
 Example of the required quality:
-  "تُعزّز هذه المبادرة منظومة التواصل المؤسسي مع الكوادر التطوعية السابقة، مستثمِرةً الإرث العلائقي للمكتب في بناء شبكة دعم مستدامة، في ظل غياب قاعدة بيانات مُحكَمة تُعيق استهداف الكفاءات المناسبة."
+  "نفّذ المكتب ورشة تدريبية حضورية حول حقوق الطلاب في قاعة المؤتمرات. أسهمت الورشة في رفع الوعي الحقوقي لدى المشاركين وتعزيز منظومة الدعم المؤسسي. أثّر التأخر في توفير المعدات التقنية على الجداول الزمنية المقررة."
 
 MANDATORY TECHNICAL RULES:
   - IMPORTANT: You MUST generate the final analysis/response in ARABIC only. Use a professional, executive tone.
@@ -212,6 +220,8 @@ MANDATORY RULES:
   - No English in the output.
   - No Markdown formatting and no numerical scores.
   - Do NOT repeat task data verbatim — deliver comparative analysis.
+  - Do NOT chain more than one idea per sentence using حيث/مما/بناءً على ذلك — use a period and start a new sentence instead.
+  - Do NOT reuse the same connector word more than once in the entire response.
 """,
 
     "challenges": """
@@ -226,6 +236,8 @@ MANDATORY RULES:
   - No English in the output.
   - No Markdown formatting and no numerical scores.
   - Do NOT copy issue text verbatim — reframe in a unified analytical narrative.
+  - Do NOT chain more than one idea per sentence using حيث/مما/بناءً على ذلك — use a period and start a new sentence instead.
+  - Do NOT reuse the same connector word more than once in the entire response.
 """,
 }
 
@@ -309,7 +321,9 @@ def call_gemini_with_fallback(
         config = genai_types.GenerateContentConfig(
             system_instruction=sys_inst,
             temperature=cfg.GEMINI_TEMPERATURE,
-            max_output_tokens=max_output_tokens
+            max_output_tokens=max_output_tokens,
+            frequency_penalty=0.3,
+            presence_penalty=0.15,
         )
         response = client.models.generate_content(
             model=model,
@@ -337,7 +351,9 @@ def call_gemini_with_fallback(
                     config = genai_types.GenerateContentConfig(
                         system_instruction=sys_inst,
                         temperature=cfg.GEMINI_TEMPERATURE,
-                        max_output_tokens=max_output_tokens
+                        max_output_tokens=max_output_tokens,
+                        frequency_penalty=0.3,
+                        presence_penalty=0.15,
                     )
                     response = client.models.generate_content(
                         model=model,

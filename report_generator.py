@@ -591,10 +591,7 @@ def _add_audit_section_direct(
     _add_section_heading(doc, "تحليل المطابقة: الخطة المعتمدة مقابل الإنجاز الفعلي", 4)
 
     # بادئة حالة الخطة
-    if plan_text and plan_text.strip():
-        _make_rtl_paragraph(doc, f"📎 {pdf_status}", size_pt=10,
-                            color=cfg.COLOR_PRIMARY)
-    else:
+    if not (plan_text and plan_text.strip()):
         _make_rtl_paragraph(
             doc, "⚠️  لم تُرفع الخطة الشهرية — التحليل بناءً على بيانات النموذج وحدها.",
             size_pt=10, color=cfg.COLOR_ACCENT
@@ -798,6 +795,6 @@ if __name__ == "__main__":
         "هذا ملخص تدقيقي تجريبي من Gemini V2.0.",
         cfg.REPORTS_DIR / "test_report_v2.docx",
         plan_text="الخطة الشهرية: 1. ندوة 2. ورشة عمل 3. اجتماع",
-        pdf_status="✅ تم استخراج 500 حرف من PDF",
+        pdf_status="",
     )
     _log.info("✅ Test report V2.0: %s", path)

@@ -115,8 +115,7 @@ class TestGetPlanTextSupabase:
 
         # التحقق من النتائج
         assert text == fake_text
-        assert "✅" in status
-        assert str(len(fake_text)) in status
+        assert status == ""
 
         # التحقق من أن المسار الصحيح استُخدم
         mock_http_download.assert_called_once_with(supabase_url)

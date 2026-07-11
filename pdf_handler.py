@@ -152,7 +152,7 @@ def get_plan_text(url: str) -> tuple[str, str]:
             return "", "⚠️  PDF لا يحتوي على نص قابل للاستخراج."
 
         _log.info("✅ تم استخراج %d حرف من PDF [%s]", len(text), source_label)
-        return text, f"✅ تم استخراج نص الخطة ({len(text)} حرف)"
+        return text, ""
 
     except Exception as exc:
         _log.error("فشل معالجة PDF (%s): %s", url[:60], exc)
