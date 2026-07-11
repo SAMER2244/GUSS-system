@@ -322,8 +322,6 @@ def call_gemini_with_fallback(
             system_instruction=sys_inst,
             temperature=cfg.GEMINI_TEMPERATURE,
             max_output_tokens=max_output_tokens,
-            frequency_penalty=0.3,
-            presence_penalty=0.15,
         )
         response = client.models.generate_content(
             model=model,
@@ -352,8 +350,6 @@ def call_gemini_with_fallback(
                         system_instruction=sys_inst,
                         temperature=cfg.GEMINI_TEMPERATURE,
                         max_output_tokens=max_output_tokens,
-                        frequency_penalty=0.3,
-                        presence_penalty=0.15,
                     )
                     response = client.models.generate_content(
                         model=model,
