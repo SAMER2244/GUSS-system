@@ -286,6 +286,34 @@ class _BaseAnalyzer(ABC):
     def analyze(self, office_data: OfficeData, plan_text: str = "") -> str: ...
 
 
+# ─── finish_reason inspector ─────────────────────────────────────────────────
+def _check_finish_reason(response, section_name: str, model: str) -> None:
+    """
+    يفحص finish_reason للـ response ويسجّل تحذيراً صريحاً إذا كان MAX_TOKENS.
+    يعمل مع كل من: response.candidates[0].finish_reason (Enum أو str).
+    """
+    try:
+        candidate = response.candidates[0] if response.candidates else None
+        if candidate is None:
+            return
+        reason = candidate.finish_reason
+        # الـ SDK يُعيد Enum أو str حسب النسخة — نُحوِّله لـ str للمقارنة
+        reason_str = reason.name if hasattr(reason, "name") else str(reason)
+        if reason_str in ("MAX_TOKENS", "STOP_REASON_MAX_TOKENS", "2"):
+            _log.warning(
+                "⚠️  [Gemini/%s] Thread '%s' TRUNCATED — finish_reason=MAX_TOKENS. "
+                "النص مقطوع في منتصفه. ارفع max_output_tokens في settings.yaml.",
+                model, section_name
+            )
+        else:
+            _log.debug(
+                "   ✅ [Gemini/%s] Thread '%s' finish_reason=%s",
+                model, section_name, reason_str
+            )
+    except Exception as e:
+        _log.debug("   [finish_reason] Could not inspect reason: %s", e)
+
+
 # ─── Gemini call helper with 429 fallback and retry logic ─────────────────────
 def call_gemini_with_fallback(
     client,
@@ -328,7 +356,9 @@ def call_gemini_with_fallback(
             contents=prompt,
             config=config
         )
-        return response.text.strip()
+        text = response.text.strip()
+        _check_finish_reason(response, section_name, model)
+        return text
     except Exception as exc:
         err_msg = str(exc)
         is_temp_error = any(
@@ -356,7 +386,9 @@ def call_gemini_with_fallback(
                         contents=prompt,
                         config=config
                     )
-                    return response.text.strip()
+                    text = response.text.strip()
+                    _check_finish_reason(response, section_name, model)
+                    return text
                 except Exception as exc_fallback:
                     err_fallback = str(exc_fallback)
                     is_fallback_temp = any(

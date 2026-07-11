@@ -3,7 +3,7 @@ ai:
   fallback_model: gemini-3.1-flash-lite
   fallback_wait_seconds: 30
   max_tokens:
-    default: 4096
+    default: 6144
     tasks: 8192
   temperature: 0.3
 auth:
