@@ -67,6 +67,14 @@ PLAN_TEXT_MAX_CHARS:  int = _cfg("pipeline", "plan_text_max_chars", 6000)
 SHEETS_RETRY_MAX:        int   = _cfg("sheets", "retry_max", 3)
 SHEETS_RETRY_BASE_DELAY: float = _cfg("sheets", "retry_base_delay", 5.0)
 
+# ─── إعدادات طابور معالجة الذكاء الاصطناعي ──────────────────────────────────
+# تُقرأ من settings.yaml قسم queue — لا تُضمَّن كأرقام صلبة في أي مكان
+QUEUE_MIN_DELAY_SECONDS: int   = _cfg("queue", "min_delay_seconds", 60)
+QUEUE_MAX_ATTEMPTS:      int   = _cfg("queue", "max_attempts", 3)
+QUEUE_BACKOFF_MULTIPLIER: int  = _cfg("queue", "backoff_multiplier", 2)
+QUEUE_STUCK_THRESHOLD_MINUTES: int = _cfg("queue", "stuck_row_threshold_minutes", 30)
+
+
 # ─── بنية الأعمدة (117 عمود) ────────────────────────────────────────────────
 # Indices are 0-based
 COL_TIMESTAMP: int = 0

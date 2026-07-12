@@ -30,3 +30,6 @@ Thumbs.db
 /logo.png
 /debug_test.py
 
+# Migration Sensitive Data
+*.xlsx
+batch_*.json

@@ -97,28 +97,24 @@ def test_upload_plan_too_large(client):
 
 
 # ─── 3. اختبار تقديم تقرير شهري ─────────────────────────────────────────────
-@patch("web_server._background_pipeline_runner")
 @patch("routes.submissions.get_supabase_client")
-def test_submit_report_success(mock_get_client, mock_bg_runner, client):
-    """التحقق من نجاح إرسال تقرير شهري جديد وحفظ المهام المرتبطة به."""
+def test_submit_report_success(mock_get_client, client):
+    """التحقق من نجاح إرسال تقرير شهري جديد وحفظ المهام وإدراج صف في الطابور."""
     mock_db = MagicMock()
     mock_get_client.return_value = mock_db
 
     # 1. محاكاة وجود المكتب
     mock_office_res = MagicMock()
     mock_office_res.data = [{"id": 5}]
-    
+
     # 2. محاكاة حفظ التقرير وإرجاع الـ ID
     mock_sub_res = MagicMock()
     mock_sub_res.data = [{"id": 42}]
 
-    # إعداد تسلسل الإرجاع لعمليات execute
-    # الأولى: eq().execute() للمكتب
-    # الثانية: insert().execute() للتقرير
-    # الثالثة: insert().execute() للمهام
-    mock_db.table.return_value.select.return_value.eq.return_value.execute.return_value = mock_office_res
-    
-    # لتسهيل محاكاة العمليات المتعددة على الجداول المختلفة:
+    # 3. محاكاة إدراج صف الطابور
+    mock_queue_res = MagicMock()
+    mock_queue_res.data = [{"id": 1, "submission_id": 42, "status": "pending"}]
+
     def mock_table_routing(table_name):
         mock_tbl = MagicMock()
         if table_name == "offices":
@@ -127,6 +123,8 @@ def test_submit_report_success(mock_get_client, mock_bg_runner, client):
             mock_tbl.insert.return_value.execute.return_value = mock_sub_res
         elif table_name == "tasks":
             mock_tbl.insert.return_value.execute.return_value = MagicMock()
+        elif table_name == "ai_processing_queue":
+            mock_tbl.insert.return_value.execute.return_value = mock_queue_res
         return mock_tbl
 
     mock_db.table.side_effect = mock_table_routing
@@ -160,15 +158,17 @@ def test_submit_report_success(mock_get_client, mock_bg_runner, client):
     data = response.json()
     assert data["status"] == "success"
     assert data["submission_id"] == 42
-    assert "تم تقديم التقرير بنجاح" in data["message"]
-    # التحقق من تشغيل معالجة الخلفية
-    mock_bg_runner.assert_called_once_with(submission_id=42)
+    assert "قيد المعالجة" in data["message"]
+
+    # التحقق من إدراج الصف في الطابور بدلاً من استدعاء _background_pipeline_runner
+    queue_calls = [call for call in mock_db.table.call_args_list
+                   if call.args and call.args[0] == "ai_processing_queue"]
+    assert len(queue_calls) == 1, "يجب استدعاء ai_processing_queue مرة واحدة فقط"
 
 
-@patch("web_server._background_pipeline_runner")
 @patch("routes.submissions.get_supabase_client")
-def test_submit_report_triggers_pipeline(mock_get_client, mock_bg_runner, client):
-    """التحقق من أن تقديم التقرير بنجاح يقوم بتشغيل معالجة الخلفية تلقائياً بـ submission_id الصحيح."""
+def test_submit_report_triggers_pipeline(mock_get_client, client):
+    """التحقق من أن تقديم التقرير بنجاح يُدرج صفاً في الطابور ولا يستدعي مسار المعالجة مباشرة."""
     mock_db = MagicMock()
     mock_get_client.return_value = mock_db
 
@@ -178,6 +178,9 @@ def test_submit_report_triggers_pipeline(mock_get_client, mock_bg_runner, client
     mock_sub_res = MagicMock()
     mock_sub_res.data = [{"id": 99}]
 
+    mock_queue_res = MagicMock()
+    mock_queue_res.data = [{"id": 7, "submission_id": 99, "status": "pending"}]
+
     def mock_table_routing(table_name):
         mock_tbl = MagicMock()
         if table_name == "offices":
@@ -186,6 +189,8 @@ def test_submit_report_triggers_pipeline(mock_get_client, mock_bg_runner, client
             mock_tbl.insert.return_value.execute.return_value = mock_sub_res
         elif table_name == "tasks":
             mock_tbl.insert.return_value.execute.return_value = MagicMock()
+        elif table_name == "ai_processing_queue":
+            mock_tbl.insert.return_value.execute.return_value = mock_queue_res
         return mock_tbl
 
     mock_db.table.side_effect = mock_table_routing
@@ -206,13 +211,20 @@ def test_submit_report_triggers_pipeline(mock_get_client, mock_bg_runner, client
         ]
     }
 
-    response = client.post("/api/submit-report", json=payload)
-    assert response.status_code == 200
-    assert response.json()["status"] == "success"
-    assert response.json()["submission_id"] == 99
-    
-    # التحقق من استدعاء معالجة الخلفية بـ submission_id الصحيح (99)
-    mock_bg_runner.assert_called_once_with(submission_id=99)
+    # التحقق من عدم استدعاء _background_pipeline_runner مباشرة
+    with patch("web_server._background_pipeline_runner") as mock_runner:
+        response = client.post("/api/submit-report", json=payload)
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        assert response.json()["submission_id"] == 99
+
+        # الـ runner يجب ألا يُستدعى مباشرة من الـ endpoint بعد الآن
+        mock_runner.assert_not_called()
+
+    # التحقق من إدراج الصف في الطابور
+    queue_calls = [call for call in mock_db.table.call_args_list
+                   if call.args and call.args[0] == "ai_processing_queue"]
+    assert len(queue_calls) == 1, "يجب إدراج صف واحد في ai_processing_queue"
 
 
 @patch("routes.submissions.get_supabase_client")

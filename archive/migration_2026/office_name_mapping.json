@@ -1,0 +1,74 @@
+{
+  "offices": [
+    {
+      "excel_name": "المكتب الإعلامي",
+      "office_id": 2,
+      "office_db_name": "المكتب الاعلامي",
+      "similarity": 0.933,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "المكتب التقني",
+      "office_id": 6,
+      "office_db_name": "المكتب التقني",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "المكتب المالي",
+      "office_id": 3,
+      "office_db_name": "المكتب المالي",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب إسطنبول",
+      "office_id": 5,
+      "office_db_name": "مكتب اسطنبول",
+      "similarity": 0.917,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب الارتباط الداخلي",
+      "office_id": 11,
+      "office_db_name": "مكتب الربط الداخلي",
+      "similarity": 0.923,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب العلاقات",
+      "office_id": 4,
+      "office_db_name": "مكتب العلاقات",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب المتابعة و التقييم",
+      "office_id": 1,
+      "office_db_name": "مكتب المتابعة و التقييم",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب الموارد البشرية",
+      "office_id": 10,
+      "office_db_name": "مكتب الموارد البشرية",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب شؤون الطلبة",
+      "office_id": 12,
+      "office_db_name": "مكتب شؤون الطلبة",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    },
+    {
+      "excel_name": "مكتب وحدة البحث العلمي",
+      "office_id": 8,
+      "office_db_name": "مكتب وحدة البحث العلمي",
+      "similarity": 1.0,
+      "_note": "راجع وأكّد أو صحّح office_id قبل --commit"
+    }
+  ]
+}

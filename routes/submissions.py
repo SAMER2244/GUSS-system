@@ -17,7 +17,7 @@ import traceback
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import JSONResponse
 
 from database import get_supabase_client, create_signed_url
@@ -122,7 +122,7 @@ async def api_upload_plan(file: UploadFile = File(...)):
 
 # ─── POST /api/submit-report ────────────────────────────────────────────────
 @router.post("/submit-report", response_model=SubmitReportResponse)
-def api_submit_report(request: SubmitReportRequest, background_tasks: BackgroundTasks):
+def api_submit_report(request: SubmitReportRequest):
     """
     استقبال تقرير شهري جديد من الفورم العام (بدون auth).
 
@@ -202,19 +202,34 @@ def api_submit_report(request: SubmitReportRequest, background_tasks: Background
             tasks_result = db.table("tasks").insert(tasks_data).execute()
             _log.info(f"   ✅ {len(tasks_data)} tasks inserted for submission {submission_id}")
 
-        # ── 4. تشغيل المعالجة بالخلفية تلقائياً ──
+        # ── 4. إدراج صف في ai_processing_queue (بدلاً من استدعاء المعالجة مباشرة) ──
+        # المعالجة الكاملة (AI + report + Drive) تتم الآن بواسطة worker.py بشكل غير متزامن.
+        # _background_pipeline_runner في web_server.py محفوظة كما هي ويستدعيها الـ worker.
         try:
-            from web_server import _background_pipeline_runner
-            background_tasks.add_task(_background_pipeline_runner, submission_id=submission_id)
-            _log.info(f"   🚀 Automatically queued background processing for submission {submission_id}")
-        except Exception as bg_err:
-            _log.error(f"⚠️ Failed to queue background processing for submission {submission_id}: {bg_err}")
+            queue_result = (
+                db.table("ai_processing_queue")
+                .insert({"submission_id": submission_id, "status": "pending"})
+                .execute()
+            )
+            _log.info(
+                f"   📥 Submission {submission_id} queued for AI processing "
+                f"(queue_id={queue_result.data[0]['id'] if queue_result.data else 'unknown'})"
+            )
+        except Exception as q_err:
+            # الإخفاق في الإدراج بالطابور لا يلغي استقبال التقرير
+            _log.error(
+                f"⚠️ Failed to insert submission {submission_id} into ai_processing_queue: {q_err}. "
+                f"The submission was saved; manual requeue may be needed."
+            )
 
-        # ── 5. إرجاع الاستجابة الناجحة ─────────────────────────────────
+        # ── 5. إرجاع الاستجابة الفورية ─────────────────────────────────
         return SubmitReportResponse(
             status="success",
             submission_id=submission_id,
-            message=f"تم تقديم التقرير بنجاح وتفعيل المعالجة بالخلفية. رقم التقرير: {submission_id}"
+            message=(
+                f"تم استلام التقرير بنجاح وهو الآن قيد المعالجة. "
+                f"رقم التقرير: {submission_id}"
+            )
         )
 
     except HTTPException:

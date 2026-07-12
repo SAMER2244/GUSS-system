@@ -130,6 +130,11 @@ schema:
     - File Link
     - رابط إثبات المهمة
     key: file_link
+queue:
+  min_delay_seconds: 60
+  max_attempts: 3
+  backoff_multiplier: 2
+  stuck_row_threshold_minutes: 30
 sheets:
   retry_base_delay: 5.0
   retry_max: 3
